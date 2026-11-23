@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CLAY CITY — Ring Metropolis</title>
+<link rel="icon" href="data:,">
 <style>
   :root {
     --accent: #35e0ff;
@@ -97,7 +98,7 @@
   <div id="hud">
     <div id="crosshair"></div>
     <div id="mode">Энергия <span class="state" id="modeState">ВЫКЛ · clay</span></div>
-    <div id="speed"><span id="speedVal">0</span> м/с · <b>WASD</b> полёт · <b>Q/E</b> вниз/вверх · <b>Shift</b> ускорение · <b>F</b> энергия · <b>Esc</b> курсор</div>
+    <div id="speed"><span id="fpsVal">–</span> fps · <span id="speedVal">0</span> м/с · <b>WASD</b> полёт · <b>Q/E</b> вниз/вверх · <b>Shift</b> ускорение · <b>F</b> энергия · <b>Esc</b> курсор</div>
   </div>
   <div id="toast"></div>
 
@@ -132,6 +133,23 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
+// отладочный зонд (временно)
+window.__errs = [];
+window.addEventListener("error", (e) => window.__errs.push(e.message + " @" + e.lineno));
+window.__frame = 0;
+
+// ?autostart — для headless-скриншотов: сразу в полёт + энергия
+if (location.search.includes("autostart")) {
+  const st = document.createElement("style");
+  st.textContent = "#overlay,#hud,#toast{transition:none!important}";
+  document.head.appendChild(st);
+  addEventListener("load", () => {
+    document.getElementById("overlay").classList.add("hidden");
+    document.getElementById("hud").classList.add("on");
+    setTimeout(() => toggleLit(), 900);
+  });
+}
+
 // ============================================================
 // РЕНДЕРЕР / СЦЕНА / КАМЕРА
 // ============================================================
@@ -144,8 +162,10 @@ try {
   document.getElementById("err").textContent = "WebGL недоступен в этом браузере: " + e.message;
   throw e;
 }
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
-renderer.setSize(innerWidth, innerHeight, false);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+renderer.setSize(innerWidth, innerHeight); // с обновлением CSS-стиля — canvas всегда растянут на окно
+renderer.toneMapping = THREE.ACESFilmicToneMapping;   // киношная цветопередача
+renderer.toneMappingExposure = 1.15;
 app.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -162,21 +182,29 @@ const CLAY = {
   fogDensity: 0.00042,
   bloomStrength: 0.10,
   bloomThreshold: 0.75,
-  hemi: 1.05, hemiSky: new THREE.Color(0xffffff), hemiGround: new THREE.Color(0x8e8b89),
-  dir: 0.85, dirColor: new THREE.Color(0xffffff),
+  hemi: 1.15, hemiSky: new THREE.Color(0xffffff), hemiGround: new THREE.Color(0x8e8b89),
+  dir: 0.9, dirColor: new THREE.Color(0xffffff),
   emissive: 0.0,
   centerLight: 0.0,
+  skyTop:    new THREE.Color(0xd8d5d3),
+  skyBottom: new THREE.Color(0xc4c1bf),
+  exposure: 1.15,
+  haze: 0.05,
 };
 const LIT = {
-  bg:        new THREE.Color(0x10181e),
-  fogColor:  new THREE.Color(0x12242c),
-  fogDensity: 0.00036,
-  bloomStrength: 0.95,
-  bloomThreshold: 0.22,
-  hemi: 0.32, hemiSky: new THREE.Color(0x3d5a66), hemiGround: new THREE.Color(0x0c1216),
-  dir: 0.28, dirColor: new THREE.Color(0x9fd8e8),
+  bg:        new THREE.Color(0x0e161c),
+  fogColor:  new THREE.Color(0x14232b),
+  fogDensity: 0.00038,
+  bloomStrength: 0.85,
+  bloomThreshold: 0.18,
+  hemi: 0.3, hemiSky: new THREE.Color(0x3d5a66), hemiGround: new THREE.Color(0x0c1216),
+  dir: 0.55, dirColor: new THREE.Color(0xffc9a0), // тёплый контровой свет «заката»
   emissive: 1.0,
   centerLight: 2.2,
+  skyTop:    new THREE.Color(0x0a141b),
+  skyBottom: new THREE.Color(0x233c46),
+  exposure: 1.0,
+  haze: 0.18,
 };
 
 let litTarget = 0;   // куда движемся (0 = clay, 1 = lit)
@@ -197,20 +225,82 @@ scene.add(sun);
 const clayBase = new THREE.MeshStandardMaterial({ color: 0xb9b6b3, roughness: 0.95, metalness: 0.0 });
 const clayDark = new THREE.MeshStandardMaterial({ color: 0xa3a09d, roughness: 0.95, metalness: 0.0 });
 
-// Эмиссивные материалы — интенсивность анимируется переходом
-function emissiveMat(hex, base = 0x2a2d2f) {
+// ---------- Процедурные текстуры (canvas, без внешних файлов) ----------
+function concreteTexture(floors, cols, base = "#b9b6b3") {
+  const c = document.createElement("canvas");
+  c.width = 128; c.height = 128;
+  const g = c.getContext("2d");
+  g.fillStyle = base; g.fillRect(0, 0, 128, 128);
+  const fh = 128 / floors;
+  g.fillStyle = "rgba(30,28,26,0.28)";
+  for (let y = 0; y < floors; y++) g.fillRect(0, y * fh, 128, Math.max(1, fh * 0.08));
+  const pw = 128 / cols;
+  for (let x = 0; x < cols; x++) g.fillRect(x * pw, 0, 1, 128);
+  for (let i = 0; i < 260; i++) {
+    g.fillStyle = `rgba(20,18,16,${Math.random() * 0.06})`;
+    g.fillRect(Math.random() * 128, Math.random() * 128, 2 + Math.random() * 10, 1 + Math.random() * 5);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function windowsTexture(floors, cols, litChance = 0.34) {
+  const c = document.createElement("canvas");
+  c.width = 128; c.height = 128;
+  const g = c.getContext("2d");
+  g.fillStyle = "#000"; g.fillRect(0, 0, 128, 128);
+  const fh = 128 / floors, pw = 128 / cols;
+  for (let fy = 0; fy < floors; fy++) {
+    for (let fx = 0; fx < cols; fx++) {
+      if (Math.random() > litChance) continue;
+      g.fillStyle = Math.random() < 0.62 ? "#ffb45e" : "#8fdcff"; // тёплые и холодные окна
+      g.globalAlpha = 0.45 + Math.random() * 0.55;
+      g.fillRect(fx * pw + pw * 0.22, fy * fh + fh * 0.28, pw * 0.52, fh * 0.42);
+    }
+  }
+  g.globalAlpha = 1;
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+const emissives = []; // { mat, factor } — интенсивность анимируется переходом
+function emissiveMat(hex, base = 0x2a2d2f, factor = 1.1) {
   const m = new THREE.MeshStandardMaterial({ color: base, roughness: 0.7, metalness: 0.0 });
   m.emissive = new THREE.Color(hex);
   m.emissiveIntensity = 0.0;
-  emissives.push(m);
+  emissives.push({ mat: m, factor });
   return m;
 }
-const emissives = []; // список для анимации
+
+// здания: бетон + светящиеся окна (окна горят только в режиме «энергия»)
+function buildingMaterial(floors, cols) {
+  const m = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: concreteTexture(floors, cols),
+    emissiveMap: windowsTexture(floors, cols),
+    emissive: 0xffffff,
+    emissiveIntensity: 0.0,
+    roughness: 0.92, metalness: 0.05,
+  });
+  emissives.push({ mat: m, factor: 1.35 });
+  return m;
+}
+
 const MAT = {
-  ringGlow:  emissiveMat(0x35e0ff), // кромки колец
-  core:      emissiveMat(0xbfffee), // ядро центра
-  blimpGlow: emissiveMat(0x8fe8ff), // огни дирижаблей
-  cityGlow:  emissiveMat(0x35e0ff), // маяки
+  ringGlow:  emissiveMat(0x35e0ff),                    // кромки колец
+  core:      emissiveMat(0xbfffee, 0x2a2d2f, 2.4),     // ядро центра
+  blimpGlow: emissiveMat(0x8fe8ff),                    // огни дирижаблей
+  cityGlow:  emissiveMat(0x35e0ff),                    // маяки
+};
+// классы высоты: плотность окон в текстуре подгоняется под высоту здания
+const MAT_BUILDING = {
+  low:  buildingMaterial(5, 4),
+  mid:  buildingMaterial(11, 5),
+  tall: buildingMaterial(18, 6),
 };
 
 // ============================================================
@@ -290,37 +380,49 @@ for (const d of RINGS) {
   scene.add(edge);
 }
 
-// --- Здания: инстансы по кольцам ---
+// --- Здания: инстансы по кольцам, 3 класса высоты под плотность окон ---
 function buildBuildings() {
   const COUNT = 6500;
-  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), clayBase, COUNT);
-  mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-  const c = new THREE.Color();
-  let i = 0;
+  const items = [];
+  const counts = { low: 0, mid: 0, tall: 0 };
   for (const d of RINGS) {
     const rMid = (d.rIn + d.rOut) / 2, w = (d.rOut - d.rIn);
     const n = Math.floor(COUNT * (w / 1210)); // плотнее на внешних
-    for (let k = 0; k < n && i < COUNT; k++, i++) {
+    for (let k = 0; k < n; k++) {
       const a = Math.random() * Math.PI * 2;
       const rr = rMid + (Math.random() - 0.5) * w * 0.92;
       const h = 18 + Math.pow(Math.random(), 1.6) * 130 * (rr > 1000 ? 0.7 : 1);
-      const fw = 6 + Math.random() * 14;
-      const fd = 6 + Math.random() * 14;
-      dummy.position.set(Math.cos(a) * rr, d.y + h / 2, Math.sin(a) * rr);
-      dummy.rotation.set(0, Math.random() * Math.PI, 0);
-      dummy.scale.set(fw, h, fd);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-      // лёгкая вариация тона «глины»
-      const v = 0.88 + Math.random() * 0.24;
-      c.setRGB(v, v * 0.995, v * 0.985);
-      mesh.setColorAt(i, c);
+      const cls = h < 48 ? "low" : h < 92 ? "mid" : "tall";
+      counts[cls]++;
+      items.push({ a, rr, h, d, cls, fw: 6 + Math.random() * 14, fd: 6 + Math.random() * 14 });
     }
   }
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  scene.add(mesh);
-  return mesh;
+  const meshes = {};
+  for (const cls of ["low", "mid", "tall"]) {
+    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), MAT_BUILDING[cls], Math.max(1, counts[cls]));
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    meshes[cls] = mesh;
+    scene.add(mesh);
+  }
+  const c = new THREE.Color();
+  const idx = { low: 0, mid: 0, tall: 0 };
+  for (const it of items) {
+    const mesh = meshes[it.cls];
+    const i = idx[it.cls]++;
+    dummy.position.set(Math.cos(it.a) * it.rr, it.d.y + it.h / 2, Math.sin(it.a) * it.rr);
+    dummy.rotation.set(0, Math.random() * Math.PI, 0);
+    dummy.scale.set(it.fw, it.h, it.fd);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+    // лёгкая вариация тона бетона
+    const v = 0.8 + Math.random() * 0.26;
+    c.setRGB(v, v * 0.995, v * 0.985);
+    mesh.setColorAt(i, c);
+  }
+  for (const cls of ["low", "mid", "tall"]) {
+    meshes[cls].instanceMatrix.needsUpdate = true;
+    if (meshes[cls].instanceColor) meshes[cls].instanceColor.needsUpdate = true;
+  }
 }
 buildBuildings();
 
@@ -410,10 +512,11 @@ function buildCables() {
 }
 buildCables();
 
-// --- Далёкое «второе кольцо» на горизонте для глубины ---
+// --- Далёкое «второе кольцо» на горизонте для глубины (с окнами) ---
 function buildFarCity() {
   const COUNT = 2200;
-  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), clayDark, COUNT);
+  const mat = buildingMaterial(14, 6); // мелкие редкие окна — читается как далёкий город
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat, COUNT);
   const c = new THREE.Color();
   for (let i = 0; i < COUNT; i++) {
     const a = Math.random() * Math.PI * 2;
@@ -434,12 +537,62 @@ function buildFarCity() {
 }
 buildFarCity();
 
+// ---------- Небо: градиентный купол (цвета анимируются переходом) ----------
+const skyU = {
+  top:    { value: new THREE.Color(0xd8d5d3) },
+  bottom: { value: new THREE.Color(0xc4c1bf) },
+};
+const sky = new THREE.Mesh(
+  new THREE.SphereGeometry(7000, 24, 12),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: skyU,
+    vertexShader: `varying vec3 vP;
+      void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform vec3 top; uniform vec3 bottom; varying vec3 vP;
+      void main(){
+        float h = normalize(vP).y * 0.5 + 0.5;
+        gl_FragColor = vec4(mix(bottom, top, smoothstep(0.38, 0.85, h)), 1.0);
+      }`,
+  })
+);
+scene.add(sky);
+
+// ---------- Дымка над городом (мягкие пятна тумана) ----------
+function softHazeTexture() {
+  const c = document.createElement("canvas");
+  c.width = 128; c.height = 128;
+  const g = c.getContext("2d");
+  const grad = g.createRadialGradient(64, 64, 8, 64, 64, 62);
+  grad.addColorStop(0, "rgba(255,255,255,0.9)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+const hazeMat = new THREE.MeshBasicMaterial({
+  map: softHazeTexture(), transparent: true, opacity: 0.05,
+  depthWrite: false, color: 0x9fb8c0, fog: false,
+});
+const hazes = [];
+for (let i = 0; i < 6; i++) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1500 + Math.random() * 900, 200 + Math.random() * 120), hazeMat);
+  m.rotation.x = -Math.PI / 2;
+  const a = Math.random() * Math.PI * 2;
+  const rr = 200 + Math.random() * 1000;
+  m.position.set(Math.cos(a) * rr, 25 + Math.random() * 70, Math.sin(a) * rr);
+  m.userData.spin = (Math.random() - 0.5) * 0.02;
+  scene.add(m);
+  hazes.push(m);
+}
+
 // ============================================================
 // ПОСТ-ОБРАБОТКА (bloom)
 // ============================================================
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), CLAY.bloomStrength, 0.55, CLAY.bloomThreshold);
+// bloom считается в половинном разрешении — дешевле и мягче
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth * 0.5, innerHeight * 0.5), CLAY.bloomStrength, 0.55, CLAY.bloomThreshold);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
@@ -451,6 +604,12 @@ const hud = document.getElementById("hud");
 const modeState = document.getElementById("modeState");
 const toastEl = document.getElementById("toast");
 const speedVal = document.getElementById("speedVal");
+const fpsVal = document.getElementById("fpsVal");
+
+// ---------- адаптивное качество: держим fps, снижая разрешение рендера ----------
+let resScale = Math.min(window.devicePixelRatio, 1.5);
+const RES_MAX = Math.min(window.devicePixelRatio, 1.5);
+let fpsFrames = 0, fpsTime = 0;
 
 let yaw = 0.52, pitch = -0.17; // стартовый взгляд на центр города
 const keys = {};
@@ -485,7 +644,7 @@ addEventListener("mousemove", (e) => {
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight, false);
+  renderer.setSize(innerWidth, innerHeight);
   composer.setSize(innerWidth, innerHeight);
 });
 
@@ -512,6 +671,7 @@ let elapsed = 0;
 
 function animate() {
   requestAnimationFrame(animate);
+  window.__frame++;
   const dt = Math.min(clock.getDelta(), 0.05);
   elapsed += dt;
 
@@ -548,13 +708,18 @@ function animate() {
   hemi.groundColor.lerpColors(LIT.hemiGround, CLAY.hemiGround, tc);
   sun.intensity = CLAY.dir * tc + LIT.dir * t;
   sun.color.lerpColors(LIT.dirColor, CLAY.dirColor, tc);
+  skyU.top.value.lerpColors(LIT.skyTop, CLAY.skyTop, tc);
+  skyU.bottom.value.lerpColors(LIT.skyBottom, CLAY.skyBottom, tc);
+  renderer.toneMappingExposure = CLAY.exposure * tc + LIT.exposure * t;
+  hazeMat.opacity = CLAY.haze * tc + LIT.haze * t;
   const em = CLAY.emissive * tc + LIT.emissive * t;
-  for (const m of emissives) m.emissiveIntensity = em * (m === MAT.core ? 2.4 : 1.1);
+  for (const e of emissives) e.mat.emissiveIntensity = em * e.factor;
   central.userData.centerLight.intensity = CLAY.centerLight * tc + LIT.centerLight * t;
 
   // --- анимации мира ---
   const spin = reducedMotion ? 0.15 : 1;
   for (const o of central.userData.orbits) o.rotation.y += o.userData.speed * dt * spin;
+  if (!reducedMotion) for (const h of hazes) h.rotation.z += h.userData.spin * dt * 8;
   if (!reducedMotion) {
     central.rotation.y += dt * 0.02;
     // дрейф дирижаблей + переустановка матриц
@@ -579,6 +744,24 @@ function animate() {
   }
 
   speedVal.textContent = Math.round(vel.length());
+
+  // --- fps-метр и адаптивное разрешение ---
+  fpsFrames++; fpsTime += dt;
+  if (fpsTime >= 1) {
+    const fps = Math.round(fpsFrames / fpsTime);
+    fpsVal.textContent = fps;
+    if (fps < 38 && resScale > 0.5) {
+      resScale = Math.max(0.5, resScale - 0.25);
+      renderer.setPixelRatio(resScale);
+      composer.setSize(innerWidth, innerHeight);
+    } else if (fps > 72 && resScale < RES_MAX) {
+      resScale = Math.min(RES_MAX, resScale + 0.25);
+      renderer.setPixelRatio(resScale);
+      composer.setSize(innerWidth, innerHeight);
+    }
+    fpsFrames = 0; fpsTime = 0;
+  }
+
   composer.render();
 }
 animate();

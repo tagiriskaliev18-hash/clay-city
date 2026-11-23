@@ -446,43 +446,121 @@ function buildBeacons() {
 }
 buildBeacons();
 
-// --- Дирижабли: сферы + светящиеся «швы» ---
-const blimps = [];
-function buildBlimps() {
+// --- Дирижабли: корпус-обтекатель, хвостовой крест, гондола, пунктирные огни ---
+const blimps = [];        // параметры дрейфа
+const airshipParts = {};  // инстанс-меши и локальные матрицы частей
+const tintMats = [];      // материалы, темнеющие в режиме «энергия»
+function buildAirships() {
   const COUNT = 110;
-  const spheres = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 24, 18), clayBase, COUNT);
-  const seams  = new THREE.InstancedMesh(new THREE.TorusGeometry(1.02, 0.02, 6, 48), MAT.blimpGlow, COUNT * 2);
-  let si = 0, ti = 0;
-  for (let k = 0; k < COUNT; k++) {
+  const L = 46, R = 9; // длина и радиус корпуса при масштабе 1
+  const hullRadius = (t) => {
+    if (t < 0.34) return Math.pow(Math.sin((t / 0.34) * Math.PI / 2), 0.75); // эллиптический нос
+    if (t < 0.68) return 1;                                                  // цилиндрический мидель
+    return Math.max(0.05, 1 - Math.pow((t - 0.68) / 0.32, 1.5));             // сужающийся хвост
+  };
+  const profile = [];
+  for (let i = 0; i <= 26; i++) {
+    const t = i / 26;
+    profile.push(new THREE.Vector2(Math.max(0.05, hullRadius(t) * R), (t - 0.5) * L));
+  }
+  const hullGeo = new THREE.LatheGeometry(profile, 30);
+  hullGeo.rotateX(Math.PI / 2); // ось корпуса вдоль Z, нос в +Z
+
+  const finGeo = new THREE.BoxGeometry(0.9, 11, 8);
+  const gondolaGeo = new THREE.BoxGeometry(3.4, 2.6, 9.5);
+  const hullMat = new THREE.MeshStandardMaterial({ color: 0xb3b0ad, roughness: 0.85, metalness: 0.05 });
+  tintMats.push({ mat: hullMat, clay: new THREE.Color(0xb3b0ad), lit: new THREE.Color(0x26313a) });
+
+  const hulls = new THREE.InstancedMesh(hullGeo, hullMat, COUNT);
+  const fins = new THREE.InstancedMesh(finGeo, hullMat, COUNT * 4);
+  const gondolas = new THREE.InstancedMesh(gondolaGeo, hullMat, COUNT);
+  const DOTS_PER = 48; // пояс по миделю + два пунктирных меридиана
+  const dots = new THREE.InstancedMesh(new THREE.BoxGeometry(1.0, 1.0, 1.7), MAT.blimpGlow, COUNT * DOTS_PER);
+
+  const eul = new THREE.Euler();
+  const qq = new THREE.Quaternion();
+  const vp = new THREE.Vector3(), vs = new THREE.Vector3(1, 1, 1);
+  const mm = new THREE.Matrix4();
+  const put = (arr, x, y, z, rz = 0) => {
+    eul.set(0, 0, rz); qq.setFromEuler(eul);
+    mm.compose(vp.set(x, y, z), qq, vs);
+    arr.push(mm.clone());
+  };
+
+  const locals = [];
+  for (let s = 0; s < COUNT; s++) {
     const a = Math.random() * Math.PI * 2;
     const rr = 250 + Math.random() * 1250;
     const y = 120 + Math.random() * 330;
-    const s = 9 + Math.random() * 16;
-    const pos = new THREE.Vector3(Math.cos(a) * rr, y, Math.sin(a) * rr);
-    const rotY = Math.random() * Math.PI;
-    const drift = { a, rr, y, s, rotY, va: (Math.random() * 0.008 + 0.004) * (Math.random() < 0.5 ? 1 : -1), vy: (Math.random() - 0.5) * 2.2 };
-    blimps.push(drift);
+    blimps.push({
+      a, rr, y, rotY: Math.random() * Math.PI, k: 0.7 + Math.random() * 1.2,
+      va: (Math.random() * 0.008 + 0.004) * (Math.random() < 0.5 ? 1 : -1),
+      vy: (Math.random() - 0.5) * 2.2,
+    });
 
-    dummy.position.copy(pos); dummy.rotation.set(0, rotY, 0); dummy.scale.set(s * 1.25, s, s * 1.25);
-    dummy.updateMatrix(); spheres.setMatrixAt(si++, dummy.matrix);
-
-    // два «шва»-кольца по меридиану
-    for (let m = 0; m < 2; m++) {
-      dummy.position.copy(pos);
-      dummy.rotation.set(Math.PI / 2, 0, rotY + (m ? Math.PI / 2.6 : 0));
-      dummy.scale.set(s * 1.25, s * 1.25, s * 1.25);
-      dummy.updateMatrix(); seams.setMatrixAt(ti++, dummy.matrix);
+    const loc = { gondola: null, fins: [], dots: [] };
+    loc.gondola = [];
+    put(loc.gondola, 0, -R * 0.95 - 1.3, 4);
+    // хвостовой крест из 4 стабилизаторов
+    for (let f = 0; f < 4; f++) {
+      const fa = (f * Math.PI) / 2;
+      put(loc.fins, -Math.sin(fa) * 5.2, Math.cos(fa) * 5.2, -L / 2 + 5.0, fa);
+    }
+    // светящийся пояс по миделю
+    for (let d2 = 0; d2 < 20; d2++) {
+      const da = (d2 / 20) * Math.PI * 2;
+      put(loc.dots, Math.cos(da) * R * 1.03, Math.sin(da) * R * 1.03, 0);
+    }
+    // два пунктирных меридиана (как в референсе)
+    for (const ma of [Math.PI / 4, -Math.PI / 6]) {
+      for (let d2 = 0; d2 < 14; d2++) {
+        const t = 0.12 + (d2 / 13) * 0.76;
+        const r2 = hullRadius(t) * R * 1.05;
+        put(loc.dots, Math.cos(ma) * r2, Math.sin(ma) * r2, (t - 0.5) * L);
+      }
+    }
+    locals.push(loc);
+  }
+  scene.add(hulls, fins, gondolas, dots);
+  Object.assign(airshipParts, { hulls, fins, gondolas, dots, locals });
+}
+// расстановка частей относительно базы дирижабля; dt=0 — первичная расстановка
+const shipBase = new THREE.Matrix4(), shipOut = new THREE.Matrix4();
+function layoutAirships(dt) {
+  const AP = airshipParts;
+  if (!AP.hulls) return;
+  let fi = 0, di = 0;
+  for (let s = 0; s < blimps.length; s++) {
+    const b = blimps[s];
+    if (dt > 0) {
+      b.a += b.va * dt; b.y += b.vy * dt;
+      if (b.y < 110 || b.y > 470) b.vy *= -1;
+    }
+    dummy.position.set(Math.cos(b.a) * b.rr, b.y, Math.sin(b.a) * b.rr);
+    dummy.rotation.set(0, b.rotY, 0);
+    dummy.scale.set(b.k, b.k, b.k);
+    dummy.updateMatrix();
+    shipBase.copy(dummy.matrix);
+    AP.hulls.setMatrixAt(s, shipBase);
+    shipOut.multiplyMatrices(shipBase, AP.locals[s].gondola[0]);
+    AP.gondolas.setMatrixAt(s, shipOut);
+    const loc = AP.locals[s];
+    for (let f = 0; f < 4; f++) {
+      shipOut.multiplyMatrices(shipBase, loc.fins[f]);
+      AP.fins.setMatrixAt(fi++, shipOut);
+    }
+    for (let d2 = 0; d2 < loc.dots.length; d2++) {
+      shipOut.multiplyMatrices(shipBase, loc.dots[d2]);
+      AP.dots.setMatrixAt(di++, shipOut);
     }
   }
-  spheres.instanceMatrix.needsUpdate = true;
-  seams.instanceMatrix.needsUpdate = true;
-  scene.add(spheres, seams);
-  seams.userData.follow = true;
-  // швы анимируем вместе с блымпами (переустановка матриц в цикле)
-  seamsRef = seams; spheresRef = spheres;
+  AP.hulls.instanceMatrix.needsUpdate = true;
+  AP.fins.instanceMatrix.needsUpdate = true;
+  AP.gondolas.instanceMatrix.needsUpdate = true;
+  AP.dots.instanceMatrix.needsUpdate = true;
 }
-let seamsRef = null, spheresRef = null;
-buildBlimps();
+buildAirships();
+layoutAirships(0);
 
 // --- Кабели между кольцами и зданиями ---
 function buildCables() {
@@ -714,6 +792,7 @@ function animate() {
   hazeMat.opacity = CLAY.haze * tc + LIT.haze * t;
   const em = CLAY.emissive * tc + LIT.emissive * t;
   for (const e of emissives) e.mat.emissiveIntensity = em * e.factor;
+  for (const tm of tintMats) tm.mat.color.lerpColors(tm.lit, tm.clay, tc); // корпуса дирижаблей темнеют ночью
   central.userData.centerLight.intensity = CLAY.centerLight * tc + LIT.centerLight * t;
 
   // --- анимации мира ---
@@ -722,25 +801,7 @@ function animate() {
   if (!reducedMotion) for (const h of hazes) h.rotation.z += h.userData.spin * dt * 8;
   if (!reducedMotion) {
     central.rotation.y += dt * 0.02;
-    // дрейф дирижаблей + переустановка матриц
-    if (seamsRef && spheresRef) {
-      let si = 0, ti = 0;
-      for (const b of blimps) {
-        b.a += b.va * dt; b.y += b.vy * dt;
-        if (b.y < 110 || b.y > 470) b.vy *= -1;
-        const x = Math.cos(b.a) * b.rr, z = Math.sin(b.a) * b.rr;
-        dummy.position.set(x, b.y, z);
-        dummy.rotation.set(0, b.rotY, 0);
-        dummy.scale.set(b.s * 1.25, b.s, b.s * 1.25);
-        dummy.updateMatrix(); spheresRef.setMatrixAt(si++, dummy.matrix);
-        for (let m = 0; m < 2; m++) {
-          dummy.rotation.set(Math.PI / 2, 0, b.rotY + (m ? Math.PI / 2.6 : 0));
-          dummy.updateMatrix(); seamsRef.setMatrixAt(ti++, dummy.matrix);
-        }
-      }
-      spheresRef.instanceMatrix.needsUpdate = true;
-      seamsRef.instanceMatrix.needsUpdate = true;
-    }
+    layoutAirships(dt); // дрейф дирижаблей: корпус, крест, гондола и огни следуют за базой
   }
 
   speedVal.textContent = Math.round(vel.length());

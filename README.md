@@ -27,8 +27,10 @@ world power on into a teal-lit night metropolis.
   plus ~2,200 silhouette towers on the horizon, all in two `InstancedMesh` draws
   with per-instance gray-value variation. No textures anywhere — the whole look
   is geometry, fog and light.
-- **Airships**: instanced spheres with glowing meridian "seam" toruses; they drift
-  and bob, and the seams are the main bloom source in the lit mode.
+- **Airships**: 110 instanced zeppelins — lathe-geometry hulls (elliptical nose →
+  cylinder → tapered tail) with cruciform tail fins, ventral gondolas and 48
+  emissive dotted lights each (midship band + two meridian strips). Four draw
+  calls for the whole fleet; hulls darken when the city powers on.
 - **Clay → energy transition** is a single 0→1 scalar driving fog color/density,
   background, hemisphere/directional light color and intensity, emissive
   intensity, bloom strength/threshold and a central point light — all lerped

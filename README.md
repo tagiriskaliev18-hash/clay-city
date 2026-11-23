@@ -1,63 +1,96 @@
-# Clay City
+# CLAY CITY — Neon & Brass
 
-A flyable clay-render sci-fi megacity in the browser. Drift between floating ring
-platforms and glowing airships — then press **F** and watch the whole gray clay
-world power on into a teal-lit night metropolis.
+Кинематографичный **киберпанк-стимпанк** мегаполис на Three.js в реальном времени:
+кольцевой город на платформах, жёсткие дирижабли с латунными рёбрами, центральный
+реактор с голограммой, объёмные прожекторы, пар, угольки, туман и кино-постобработка.
 
-**Live demo:** https://tagiriskaliev18-hash.github.io/clay-city/
+**Живое демо:** https://tagiriskaliev18-hash.github.io/clay-city/
 
-![Powered-on ring city with glowing cyan rings and airship lights](assets/preview-lit.png)
+| День (пасмурный реализм) | Ночь (энергия города) |
+| --- | --- |
+| ![day](assets/preview-day.png) | ![night](assets/preview-night.png) |
 
-## Controls
+## Управление
 
-| Key | Action |
-|---|---|
-| `W A S D` | fly |
-| Mouse (click to capture) | look around |
-| `Q` / `E` | descend / climb |
-| `Shift` | boost |
-| `F` | toggle city energy (clay ↔ lit) |
-| `Esc` | release cursor |
+| Клавиша | Действие |
+| --- | --- |
+| **W A S D** | полёт |
+| **Мышь** | обзор (клик — захват курсора) |
+| **Q / E** | снижение / набор высоты |
+| **Shift** | форсаж (с FOV-киком) |
+| **F** | день / энергия города (плавный переход ~2.6 c) |
+| **C** | кино-режим: камера-дрон летит по маршруту, letterbox-кадр. Любая клавиша движения — выход |
+| **Esc** | отпустить курсор |
 
-## How it's built
+## Что под капотом
 
-- **One HTML file**, no build step. Three.js r170 loaded from jsDelivr via an
-  import map (network connection required on first load).
-- **Procedural kitbash city**: ~6,500 buildings on four concentric ring platforms
-  plus ~2,200 silhouette towers on the horizon, all in two `InstancedMesh` draws
-  with per-instance gray-value variation. No textures anywhere — the whole look
-  is geometry, fog and light.
-- **Airships**: 110 instanced zeppelins — lathe-geometry hulls (elliptical nose →
-  cylinder → tapered tail) with cruciform tail fins, ventral gondolas and 48
-  emissive dotted lights each (midship band + two meridian strips). Four draw
-  calls for the whole fleet; hulls darken when the city powers on.
-- **Clay → energy transition** is a single 0→1 scalar driving fog color/density,
-  background, hemisphere/directional light color and intensity, emissive
-  intensity, bloom strength/threshold and a central point light — all lerped
-  per frame, so the world crossfades live instead of swapping presets.
-- **Cables**: 500+ sagging quadratic-bezier line segments strung between ring
-  anchor points.
-- Runs at 200+ FPS on a mid-range desktop GPU (measured at 1080p).
+- **index.html + ES-модули** (`src/`), без сборки — GitHub Pages работает как есть.
+  Three.js 0.170 через importmap с CDN.
+- **Процедурные PBR-текстуры** (canvas): фасады 1024px с окнами/потёками/рамами,
+  латунь и сталь с заклёпками, обшивка дирижаблей, мокрый асфальт с roughness-картами.
+  Никаких внешних файлов — всё генерируется при загрузке.
+- **World-scale UV для фасадов** (патч шейдера через `onBeforeCompile`): окна на всех
+  зданиях одного метража, узор не повторяется — джиттер по `gl_InstanceID`.
+- **Инстансинг везде**: ~6200 зданий + крыши + короны, крышный «мусор» (баки,
+  кондиционеры, антенны с маячками), трафик (1500 машин), мосты, шестерни-тотемы,
+  вывески-лезвия. Полный кадр: **~175 draw calls / ~0.65 млн треугольников**.
+- **Дирижабли**: жёсткий корпус (LatheGeometry) с тонкими латунными рёбрами, гондола
+  с лентой окон, мотогондолы с вращающимися винтами, носовой латунный конус, хвостовое
+  оперение, бортовые огни (красный/зелёный) и **строб-огни** с фазой по инстансу
+  (шейдер). Едут по замкнутым CatmullRom-маршрутам: **крен в поворотах** (v²/g·R),
+  килевая и бортовая качка, ветровой дрейф, паровые следы из мотогондол (CPU-пул
+  частиц). Два «героя» с **объёмными прожекторами** + реальными SpotLight,
+  освещающими улицы.
+- **Небо-шейдер**: трёхслойный градиент, солнце/луна, fbm-облака, звёзды с мерцанием,
+  засветка города у горизонта. Из него же пекутся **PMREM-окружения** для PBR-отражений
+  (латуни, стекла, мокрого асфальта).
+- **Переход день↔ночь** анимирует всё: небо, туман, свет, экспозицию, env-интенсивность,
+  эмиссию окон/вывесок/трафика, грейдинг, зерно, виньетку, аберрацию.
+- **Постобработка**: UnrealBloom (полрез) → OutputPass (ACES) → cine-pass (грейдинг в
+  тенях, S-контраст, хроматическая аберрация, зерно, виньетка) → FXAA; MSAA×4 на
+  render-target в WebGL2.
+- **Частицы на GPU**: угольки, уличный пар (замкнутый цикл в vertex-шейдере), листы
+  дымки с fbm-альфой.
+- **Адаптивное качество**: FPS-метр в HUD, авто-масштаб рендера 55–175% (у RTX 3070
+  держит 60+ fps с запасом; на слабых iGPU картинка остаётся стабильной).
 
-Inspired by clay-render sci-fi loops by [nichenovus](https://www.instagram.com/nichenovus/)
-(made in Blender Eevee); this is an original real-time recreation of that style,
-not affiliated with the artist.
+## Отладочные параметры URL
 
-## Run locally
+`?autostart` — сразу в полёт · `&day=1` / `&lit=1` — форсировать режим ·
+`&cine=1` — стартовать в кино-режиме · `&t0=40` — сдвиг времени ·
+`&cam=x,y,z&look=x,y,z` — постановочная камера · `&msaa=0`, `&noenv=1`,
+`&nocity=1`, `&noair=1`, `&nopart=1`, `&nosky=1`, `&nocentral=1` — отключать
+подсистемы · `&debug=1` — статистика кадра в консоль.
+
+## Запуск локально
 
 ```bash
-python -m http.server 8137
-# open http://localhost:8137
+# из корня репозитория (нужен статический сервер из-за ES-модулей)
+npx serve .          # или: python -m http.server
 ```
 
-Any static server works; opening `index.html` directly from disk also works in
-Chrome/Edge because all imports are remote HTTPS modules.
-
-## Structure
+## Структура
 
 ```
 clay-city/
-├── index.html          # the whole game (markup, styles, JS)
-├── assets/             # README preview screenshots
+├── index.html          # оболочка: HUD, загрузка, importmap
+├── src/
+│   ├── main.js         # сборка сцены, переход день/ночь, цикл, адаптив
+│   ├── config.js       # палитры DAY/NIGHT, константы мира, MODE
+│   ├── textures.js     # процедурные canvas-текстуры
+│   ├── materials.js    # PBR-материалы + реестры режимов + facade-патч
+│   ├── sky.js          # шейдерный купол (день/ночь/звёзды/облака)
+│   ├── city.js         # кольца, здания, вывески, трафик, мосты, шестерни
+│   ├── central.js      # центральная башня: реактор, лифты, корона
+│   ├── airships.js     # флот дирижаблей и их «физика» полёта
+│   ├── particles.js    # угольки, пар, следы, дымка
+│   ├── effects.js      # композер постобработки
+│   └── controls.js     # полёт + кино-режим
+├── assets/             # превью для README
 └── .gitignore
 ```
+
+История: v1 была «clay-render» прототипом (серый макет из боксов, 110 дирижаблей
+на круговых орбитах). В v2 стиль эволюционировал в киберпанк-стимпанк с упором на
+реализм: PBR-материалы, кинематографичный свет и постобработка, а движение
+дирижаблей переписано с механических кругов на живые маршруты с кренами и качкой.

@@ -3,116 +3,142 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CLAY CITY — Ring Metropolis</title>
+<title>CLAY CITY — Astana Ring · киберпанк-стимпанк мегаполис</title>
+<meta name="description" content="Кинематографичный киберпанк-стимпанк город по мотивам Астаны: Байтерек, Хан Шатыр, дирижабли. Three.js, реальное время.">
+<meta name="theme-color" content="#0b1016">
 <link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;800&family=Manrope:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --accent: #35e0ff;
+    --acc: #ffc27a;            /* закат */
+    --acc2: #8ad8ff;
+    --ink: #eef1f3;
+    --dim: rgba(238, 241, 243, .62);
+    --hair: rgba(255, 255, 255, .16);
+    --panel: rgba(9, 14, 19, .52);
   }
+  body[data-preset="night"] { --acc: #6fe6ff; --acc2: #ff77d9; }
+  body[data-preset="day"] { --acc: #ffd9a8; --acc2: #7cc4ff; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #cfcccb; }
-  body { font-family: "Segoe UI", system-ui, sans-serif; }
-
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0b1016; }
+  body { font-family: "Manrope", "Segoe UI", system-ui, sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
   #app { position: fixed; inset: 0; }
-  canvas { display: block; }
+  canvas { display: block; touch-action: none; }
 
-  /* ---------- Стартовый оверлей ---------- */
-  #overlay {
-    position: fixed; inset: 0; z-index: 10;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    background: radial-gradient(ellipse at 50% 40%, rgba(207,204,203,.55) 0%, rgba(140,138,136,.85) 100%);
-    backdrop-filter: blur(2px);
-    color: #23211f; text-align: center;
-    transition: opacity .6s ease; cursor: pointer;
-  }
-  #overlay.hidden { opacity: 0; pointer-events: none; }
-  #overlay h1 {
-    font-size: clamp(42px, 8vw, 96px); font-weight: 800; letter-spacing: .12em;
-    color: #1c1a19; text-transform: uppercase;
-  }
-  #overlay h1 span { color: #4a4846; font-weight: 300; }
-  #overlay .sub {
-    margin-top: 6px; font-size: clamp(13px, 1.6vw, 17px); color: #3d3b39; letter-spacing: .28em;
-    text-transform: uppercase;
-  }
-  #overlay .controls {
-    margin-top: 34px; display: grid; grid-template-columns: auto auto; gap: 6px 18px;
-    font-size: 14px; color: #33312f; text-align: left;
-  }
-  #overlay .controls b {
-    font-weight: 700; background: #23211f; color: #e8e6e4; border-radius: 5px;
-    padding: 1px 9px; font-size: 12px; letter-spacing: .05em;
-  }
-  #overlay .start {
-    margin-top: 40px; font-size: 15px; letter-spacing: .2em; text-transform: uppercase;
-    color: #1c1a19; border: 1.5px solid #1c1a19; padding: 12px 34px; border-radius: 999px;
-    animation: pulse 2.2s ease-in-out infinite;
-  }
-  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
+  /* ---------- кино-рамка ---------- */
+  .bar { position: fixed; left: 0; right: 0; height: 0; z-index: 7; background: #000; pointer-events: none; transition: height 1.1s cubic-bezier(.16, 1, .3, 1); }
+  #barTop { top: 0; } #barBottom { bottom: 0; }
+  body.cine #barTop, body.cine #barBottom { height: 8.5vh; }
 
   /* ---------- HUD ---------- */
-  #hud { position: fixed; inset: 0; z-index: 5; pointer-events: none; opacity: 0; transition: opacity .6s; }
+  #hud { position: fixed; inset: 0; z-index: 5; pointer-events: none; opacity: 0; transition: opacity .9s ease; }
   #hud.on { opacity: 1; }
-  #crosshair {
-    position: absolute; left: 50%; top: 50%; width: 6px; height: 6px;
-    margin: -3px 0 0 -3px; border-radius: 50%;
-    background: rgba(30,28,27,.8); box-shadow: 0 0 0 1.5px rgba(255,255,255,.5);
-    transition: background .8s;
+  #hud.off .chip, #hud.off #crosshair { opacity: 0; }
+  .chip {
+    position: absolute; font-size: 12px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--dim); padding: 10px 14px; background: var(--panel); border: 1px solid var(--hair);
+    backdrop-filter: blur(10px) saturate(1.2); -webkit-backdrop-filter: blur(10px) saturate(1.2);
+    border-radius: 3px; transition: opacity .5s, color .8s;
   }
-  body.lit #crosshair { background: rgba(160,240,255,.95); box-shadow: 0 0 8px var(--accent), 0 0 0 1.5px rgba(20,40,45,.8); }
-  #mode {
-    position: absolute; top: 18px; right: 22px; text-align: right;
-    font-size: 12px; letter-spacing: .22em; text-transform: uppercase; color: #3d3b39;
+  #brand { top: 18px; left: 20px; display: flex; align-items: baseline; gap: 12px; border-left: 2px solid var(--acc); }
+  #brand b { font-family: "Unbounded", sans-serif; font-weight: 800; font-size: 15px; letter-spacing: .2em; color: var(--ink); }
+  #brand span { letter-spacing: .34em; color: var(--acc); transition: color .8s; }
+  #mode { top: 18px; right: 20px; text-align: right; }
+  #mode .lbl { font-size: 10px; letter-spacing: .3em; opacity: .7; }
+  #mode .state { display: block; margin-top: 3px; font-size: 15px; color: var(--acc); letter-spacing: .3em; transition: color .8s; }
+  #perf { top: 84px; right: 20px; font-variant-numeric: tabular-nums; letter-spacing: .12em; font-size: 11.5px; }
+  #perf b { color: var(--ink); font-weight: 700; }
+  #speed { bottom: 18px; left: 20px; font-variant-numeric: tabular-nums; }
+  #speed b { font-family: "Unbounded", sans-serif; font-size: 18px; font-weight: 500; letter-spacing: .06em; color: var(--ink); margin-right: 8px; }
+  #help { bottom: 18px; right: 20px; max-width: min(520px, 62vw); text-align: right; line-height: 1.9; letter-spacing: .08em; font-size: 11.5px; text-transform: none; }
+  #help kbd {
+    display: inline-block; min-width: 20px; padding: 1px 6px; margin: 0 4px 0 10px; font: 700 10.5px "Manrope", sans-serif;
+    color: var(--ink); border: 1px solid rgba(255,255,255,.28); border-bottom-width: 2px; border-radius: 3px; text-align: center;
   }
-  #mode .state { font-weight: 700; font-size: 14px; margin-top: 2px; }
-  body.lit #mode { color: #9feaf8; }
-  #speed {
-    position: absolute; bottom: 18px; left: 22px;
-    font-size: 12px; letter-spacing: .18em; color: #3d3b39; text-transform: uppercase;
-  }
-  body.lit #speed { color: #8fdcea; }
-  #vignette {
-    position: fixed; inset: 0; z-index: 4; pointer-events: none;
-    background: radial-gradient(ellipse at center, transparent 62%, rgba(0,0,0,.22) 100%);
-    transition: opacity 1s;
-  }
-  #toast {
-    position: fixed; z-index: 6; left: 50%; top: 64px; transform: translateX(-50%);
-    padding: 8px 22px; border-radius: 999px; font-size: 13px; letter-spacing: .25em;
-    text-transform: uppercase; color: #1c1a19; background: rgba(232,230,228,.85);
-    opacity: 0; transition: opacity .4s; pointer-events: none;
-  }
-  body.lit #toast { color: #dff8ff; background: rgba(16,42,50,.75); }
-  #toast.show { opacity: 1; }
-  #err {
-    position: fixed; inset: 0; z-index: 50; display: none;
-    align-items: center; justify-content: center; color: #901c1c;
-    background: #e8e6e4; font-size: 18px; padding: 40px; text-align: center;
-  }
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%;
+    background: rgba(255,255,255,.85); box-shadow: 0 0 0 1px rgba(0,0,0,.5); transition: opacity .5s; }
+
+  #toast { position: fixed; z-index: 6; left: 50%; top: 24px; transform: translate(-50%, -8px); padding: 9px 22px;
+    font-size: 12.5px; font-weight: 700; letter-spacing: .26em; text-transform: uppercase; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--hair); border-radius: 3px; backdrop-filter: blur(10px);
+    opacity: 0; transition: opacity .35s, transform .35s; pointer-events: none; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* ---------- стартовый экран ---------- */
+  #overlay { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 50% 62%, rgba(8, 12, 16, .05) 0%, rgba(6, 9, 12, .62) 78%);
+    cursor: pointer; transition: opacity .9s ease; }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+  #overlay .kicker { font-size: 11px; font-weight: 600; letter-spacing: .46em; text-transform: uppercase; color: var(--dim);
+    padding: 8px 18px 7px; border: 1px solid var(--hair); border-radius: 2px; background: rgba(8,12,16,.35); backdrop-filter: blur(6px); }
+  #overlay h1 { margin-top: 26px; font-family: "Unbounded", sans-serif; font-weight: 800; font-size: clamp(44px, 8.4vw, 124px);
+    line-height: .9; letter-spacing: .02em; color: #fff; text-shadow: 0 6px 60px rgba(0,0,0,.55); }
+  #overlay h1 em { display: block; margin-top: 16px; font-style: normal; font-weight: 500; font-size: clamp(13px, 1.6vw, 21px);
+    letter-spacing: .62em; color: var(--acc); text-indent: .62em; text-align: center; transition: color .8s; }
+  #overlay .note { margin-top: 22px; font-size: 12px; letter-spacing: .12em; color: var(--dim); text-align: center; max-width: 560px; line-height: 1.7; }
+  #keys { margin-top: 34px; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; max-width: 760px; }
+  #keys div { display: flex; align-items: center; padding: 8px 14px; font-size: 12.5px; letter-spacing: .06em; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--hair); border-radius: 3px; backdrop-filter: blur(8px); }
+  #keys kbd { display: inline-block; min-width: 24px; margin-right: 10px; padding: 3px 8px; font: 700 11px "Manrope", sans-serif; text-align: center;
+    color: var(--acc); border: 1px solid rgba(255,255,255,.28); border-bottom-width: 2px; border-radius: 3px; }
+  #start { margin-top: 38px; padding: 15px 44px; font-size: 13px; font-weight: 700; letter-spacing: .4em; text-indent: .4em; text-transform: uppercase;
+    color: #0b1016; background: var(--acc); border-radius: 2px; transition: background .8s, transform .3s; animation: breathe 3s ease-in-out infinite; }
+  #overlay:hover #start { transform: translateY(-2px); }
+  @keyframes breathe { 0%, 100% { opacity: 1 } 50% { opacity: .72 } }
+
+  /* ---------- загрузка ---------- */
+  #loadWrap { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: #0b1016; transition: opacity .9s ease; }
+  #loadWrap.done { opacity: 0; pointer-events: none; }
+  #loadWrap .logo { font-family: "Unbounded", sans-serif; font-weight: 800; font-size: 26px; letter-spacing: .3em; color: #fff; }
+  #loadWrap .track { margin-top: 26px; width: min(420px, 72vw); height: 2px; background: rgba(255,255,255,.12); overflow: hidden; }
+  #loadBar { height: 100%; width: 0; background: var(--acc); transition: width .5s ease; }
+  #loadLabel { margin-top: 14px; font-size: 11.5px; letter-spacing: .34em; text-transform: uppercase; color: var(--dim); }
+
+  #err { position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center; padding: 40px; text-align: center;
+    color: #ffb3b3; background: #14090b; font-size: 16px; line-height: 1.6; }
 </style>
 </head>
 <body>
   <div id="app"></div>
-  <div id="vignette"></div>
+  <div id="barTop" class="bar"></div>
+  <div id="barBottom" class="bar"></div>
 
   <div id="hud">
+    <div id="brand" class="chip"><b>CLAY CITY</b><span>ASTANA RING</span></div>
+    <div id="mode" class="chip"><span class="lbl">Освещение</span><span class="state" id="presetName">Закат</span></div>
+    <div id="perf" class="chip"><b id="fpsVal">–</b> fps · рендер <b id="resVal">100%</b></div>
+    <div id="speed" class="chip"><b id="speedVal">0</b> м/с</div>
+    <div id="help" class="chip">
+      <kbd>WASD</kbd>полёт <kbd>Q</kbd><kbd>E</kbd>высота <kbd>Shift</kbd>форсаж <kbd>F</kbd>закат / ночь / день
+      <kbd>C</kbd>кино-маршрут <kbd>H</kbd>интерфейс <kbd>Esc</kbd>курсор
+    </div>
     <div id="crosshair"></div>
-    <div id="mode">Энергия <span class="state" id="modeState">ВЫКЛ · clay</span></div>
-    <div id="speed"><span id="fpsVal">–</span> fps · <span id="speedVal">0</span> м/с · <b>WASD</b> полёт · <b>Q/E</b> вниз/вверх · <b>Shift</b> ускорение · <b>F</b> энергия · <b>Esc</b> курсор</div>
   </div>
   <div id="toast"></div>
 
   <div id="overlay">
-    <h1>Clay<span>City</span></h1>
-    <div class="sub">Кольцевой мегаполис · прототип в стиле clay-render</div>
-    <div class="controls">
-      <div><b>W A S D</b></div><div>полёт</div>
-      <div><b>Мышь</b></div><div>обзор (клик — захват курсора)</div>
-      <div><b>Q / E</b></div><div>снижение / набор высоты</div>
-      <div><b>Shift</b></div><div>форсаж</div>
-      <div><b>F</b></div><div>включить энергию города</div>
+    <div class="kicker">киберпанк · стимпанк · по мотивам Астаны</div>
+    <h1>CLAY CITY<em>ASTANA RING</em></h1>
+    <div class="note">Неофициальная художественная реконструкция: кольцевой мегаполис, парящий в облаках.
+      Байтерек, Хан Шатыр, Дворец мира и согласия, сфера «Нур Алем» — и флот жёстких дирижаблей над ними.</div>
+    <div id="keys">
+      <div><kbd>W A S D</kbd>полёт</div>
+      <div><kbd>Мышь</kbd>обзор</div>
+      <div><kbd>Q / E</kbd>вниз / вверх</div>
+      <div><kbd>Shift</kbd>форсаж</div>
+      <div><kbd>F</kbd>время суток</div>
+      <div><kbd>C</kbd>кино-маршрут</div>
     </div>
-    <div class="start">Клик — начать полёт</div>
+    <div id="start">Клик — начать полёт</div>
+  </div>
+
+  <div id="loadWrap">
+    <div class="logo">CLAY CITY</div>
+    <div class="track"><div id="loadBar"></div></div>
+    <div id="loadLabel">Инициализация</div>
   </div>
 
   <div id="err"></div>
@@ -125,707 +151,6 @@
   }
 }
 </script>
-
-<script type="module">
-import * as THREE from "three";
-import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
-
-// отладочный зонд (временно)
-window.__errs = [];
-window.addEventListener("error", (e) => window.__errs.push(e.message + " @" + e.lineno));
-window.__frame = 0;
-
-// ?autostart — для headless-скриншотов: сразу в полёт + энергия
-if (location.search.includes("autostart")) {
-  const st = document.createElement("style");
-  st.textContent = "#overlay,#hud,#toast{transition:none!important}";
-  document.head.appendChild(st);
-  addEventListener("load", () => {
-    document.getElementById("overlay").classList.add("hidden");
-    document.getElementById("hud").classList.add("on");
-    setTimeout(() => toggleLit(), 900);
-  });
-}
-
-// ============================================================
-// РЕНДЕРЕР / СЦЕНА / КАМЕРА
-// ============================================================
-const app = document.getElementById("app");
-let renderer;
-try {
-  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-} catch (e) {
-  document.getElementById("err").style.display = "flex";
-  document.getElementById("err").textContent = "WebGL недоступен в этом браузере: " + e.message;
-  throw e;
-}
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-renderer.setSize(innerWidth, innerHeight); // с обновлением CSS-стиля — canvas всегда растянут на окно
-renderer.toneMapping = THREE.ACESFilmicToneMapping;   // киношная цветопередача
-renderer.toneMappingExposure = 1.15;
-app.appendChild(renderer.domElement);
-
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.5, 12000);
-camera.position.set(860, 420, 1480);
-camera.rotation.order = "YXZ";
-
-// ============================================================
-// СОСТОЯНИЕ «ГЛИНА → ЭНЕРГИЯ» (переход 0..1)
-// ============================================================
-const CLAY = {
-  bg:        new THREE.Color(0xcfcccb),
-  fogColor:  new THREE.Color(0xc7c4c2),
-  fogDensity: 0.00042,
-  bloomStrength: 0.10,
-  bloomThreshold: 0.75,
-  hemi: 1.15, hemiSky: new THREE.Color(0xffffff), hemiGround: new THREE.Color(0x8e8b89),
-  dir: 0.9, dirColor: new THREE.Color(0xffffff),
-  emissive: 0.0,
-  centerLight: 0.0,
-  skyTop:    new THREE.Color(0xd8d5d3),
-  skyBottom: new THREE.Color(0xc4c1bf),
-  exposure: 1.15,
-  haze: 0.05,
-};
-const LIT = {
-  bg:        new THREE.Color(0x0e161c),
-  fogColor:  new THREE.Color(0x14232b),
-  fogDensity: 0.00038,
-  bloomStrength: 0.85,
-  bloomThreshold: 0.18,
-  hemi: 0.3, hemiSky: new THREE.Color(0x3d5a66), hemiGround: new THREE.Color(0x0c1216),
-  dir: 0.55, dirColor: new THREE.Color(0xffc9a0), // тёплый контровой свет «заката»
-  emissive: 1.0,
-  centerLight: 2.2,
-  skyTop:    new THREE.Color(0x0a141b),
-  skyBottom: new THREE.Color(0x233c46),
-  exposure: 1.0,
-  haze: 0.18,
-};
-
-let litTarget = 0;   // куда движемся (0 = clay, 1 = lit)
-let litValue = 0;    // текущее состояние перехода
-
-scene.background = CLAY.bg.clone();
-scene.fog = new THREE.FogExp2(CLAY.fogColor.clone(), CLAY.fogDensity);
-
-const hemi = new THREE.HemisphereLight(CLAY.hemiSky, CLAY.hemiGround, CLAY.hemi);
-scene.add(hemi);
-const sun = new THREE.DirectionalLight(CLAY.dirColor, CLAY.dir);
-sun.position.set(700, 1200, 400);
-scene.add(sun);
-
-// ============================================================
-// МАТЕРИАЛЫ (clay-серые + эмиссия для «энергии»)
-// ============================================================
-const clayBase = new THREE.MeshStandardMaterial({ color: 0xb9b6b3, roughness: 0.95, metalness: 0.0 });
-const clayDark = new THREE.MeshStandardMaterial({ color: 0xa3a09d, roughness: 0.95, metalness: 0.0 });
-
-// ---------- Процедурные текстуры (canvas, без внешних файлов) ----------
-function concreteTexture(floors, cols, base = "#b9b6b3") {
-  const c = document.createElement("canvas");
-  c.width = 128; c.height = 128;
-  const g = c.getContext("2d");
-  g.fillStyle = base; g.fillRect(0, 0, 128, 128);
-  const fh = 128 / floors;
-  g.fillStyle = "rgba(30,28,26,0.28)";
-  for (let y = 0; y < floors; y++) g.fillRect(0, y * fh, 128, Math.max(1, fh * 0.08));
-  const pw = 128 / cols;
-  for (let x = 0; x < cols; x++) g.fillRect(x * pw, 0, 1, 128);
-  for (let i = 0; i < 260; i++) {
-    g.fillStyle = `rgba(20,18,16,${Math.random() * 0.06})`;
-    g.fillRect(Math.random() * 128, Math.random() * 128, 2 + Math.random() * 10, 1 + Math.random() * 5);
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
-function windowsTexture(floors, cols, litChance = 0.34) {
-  const c = document.createElement("canvas");
-  c.width = 128; c.height = 128;
-  const g = c.getContext("2d");
-  g.fillStyle = "#000"; g.fillRect(0, 0, 128, 128);
-  const fh = 128 / floors, pw = 128 / cols;
-  for (let fy = 0; fy < floors; fy++) {
-    for (let fx = 0; fx < cols; fx++) {
-      if (Math.random() > litChance) continue;
-      g.fillStyle = Math.random() < 0.62 ? "#ffb45e" : "#8fdcff"; // тёплые и холодные окна
-      g.globalAlpha = 0.45 + Math.random() * 0.55;
-      g.fillRect(fx * pw + pw * 0.22, fy * fh + fh * 0.28, pw * 0.52, fh * 0.42);
-    }
-  }
-  g.globalAlpha = 1;
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
-const emissives = []; // { mat, factor } — интенсивность анимируется переходом
-function emissiveMat(hex, base = 0x2a2d2f, factor = 1.1) {
-  const m = new THREE.MeshStandardMaterial({ color: base, roughness: 0.7, metalness: 0.0 });
-  m.emissive = new THREE.Color(hex);
-  m.emissiveIntensity = 0.0;
-  emissives.push({ mat: m, factor });
-  return m;
-}
-
-// здания: бетон + светящиеся окна (окна горят только в режиме «энергия»)
-function buildingMaterial(floors, cols) {
-  const m = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    map: concreteTexture(floors, cols),
-    emissiveMap: windowsTexture(floors, cols),
-    emissive: 0xffffff,
-    emissiveIntensity: 0.0,
-    roughness: 0.92, metalness: 0.05,
-  });
-  emissives.push({ mat: m, factor: 1.35 });
-  return m;
-}
-
-const MAT = {
-  ringGlow:  emissiveMat(0x35e0ff),                    // кромки колец
-  core:      emissiveMat(0xbfffee, 0x2a2d2f, 2.4),     // ядро центра
-  blimpGlow: emissiveMat(0x8fe8ff),                    // огни дирижаблей
-  cityGlow:  emissiveMat(0x35e0ff),                    // маяки
-};
-// классы высоты: плотность окон в текстуре подгоняется под высоту здания
-const MAT_BUILDING = {
-  low:  buildingMaterial(5, 4),
-  mid:  buildingMaterial(11, 5),
-  tall: buildingMaterial(18, 6),
-};
-
-// ============================================================
-// ГЕОМЕТРИЯ ГОРОДА
-// ============================================================
-const dummy = new THREE.Object3D();
-
-// --- Центральная структура: основание, ядро-сфера, орбитальные кольца ---
-function buildCentral() {
-  const g = new THREE.Group();
-
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(95, 130, 150, 48), clayDark);
-  base.position.y = 75;
-  g.add(base);
-
-  const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(55, 85, 70, 40), clayBase);
-  pedestal.position.y = 185;
-  g.add(pedestal);
-
-  const core = new THREE.Mesh(new THREE.SphereGeometry(64, 48, 36), MAT.core);
-  core.position.y = 330;
-  g.add(core);
-
-  // орбитальные кольца (вращаются)
-  const orbitRings = [];
-  const ringDefs = [
-    { r: 105, tube: 3.2, tilt: 0.45, speed: 0.10, y: 330 },
-    { r: 135, tube: 2.4, tilt: -0.35, speed: -0.07, y: 330 },
-    { r: 170, tube: 1.8, tilt: 1.15, speed: 0.05, y: 330 },
-  ];
-  for (const d of ringDefs) {
-    const orbit = new THREE.Group();
-    orbit.position.y = d.y;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(d.r, d.tube, 10, 96), clayBase);
-    ring.rotation.x = Math.PI / 2;
-    const glow = new THREE.Mesh(new THREE.TorusGeometry(d.r, d.tube * 0.4, 8, 96), MAT.ringGlow);
-    glow.rotation.x = Math.PI / 2;
-    orbit.add(ring, glow);
-    orbit.rotation.z = d.tilt;
-    orbit.userData.speed = d.speed;
-    orbitRings.push(orbit);
-    g.add(orbit);
-  }
-  g.userData.orbits = orbitRings;
-
-  // центральный свет «энергии»
-  const point = new THREE.PointLight(0x4be8ff, 0, 2600, 1.6);
-  point.position.set(0, 330, 0);
-  g.add(point);
-  g.userData.centerLight = point;
-
-  scene.add(g);
-  return g;
-}
-const central = buildCentral();
-
-// --- Плавающие кольцевые платформы с кварталами зданий ---
-const RINGS = [
-  { rIn: 210, rOut: 560, y:   0 },
-  { rIn: 640, rOut: 900, y:  55 },
-  { rIn: 980, rOut:1180, y: 110 },
-  { rIn:1280, rOut:1420, y: 150 },
-];
-
-const ringDiscs = [];
-for (const d of RINGS) {
-  const rMid = (d.rIn + d.rOut) / 2, w = (d.rOut - d.rIn);
-  const disc = new THREE.Mesh(new THREE.CylinderGeometry(rMid + w / 2, rMid + w / 2, 14, 96, 1), clayDark);
-  // цилиндр сплошной — «дырку» имитировать нечем, но изнутри её не видно из-за зданий и тумана.
-  disc.position.y = d.y - 7;
-  scene.add(disc);
-  ringDiscs.push(disc);
-  // светящаяся кромка кольца
-  const edge = new THREE.Mesh(new THREE.TorusGeometry(rMid + w / 2, 1.6, 8, 128), MAT.ringGlow);
-  edge.rotation.x = Math.PI / 2;
-  edge.position.y = d.y + 0.5;
-  scene.add(edge);
-}
-
-// --- Здания: инстансы по кольцам, 3 класса высоты под плотность окон ---
-function buildBuildings() {
-  const COUNT = 6500;
-  const items = [];
-  const counts = { low: 0, mid: 0, tall: 0 };
-  for (const d of RINGS) {
-    const rMid = (d.rIn + d.rOut) / 2, w = (d.rOut - d.rIn);
-    const n = Math.floor(COUNT * (w / 1210)); // плотнее на внешних
-    for (let k = 0; k < n; k++) {
-      const a = Math.random() * Math.PI * 2;
-      const rr = rMid + (Math.random() - 0.5) * w * 0.92;
-      const h = 18 + Math.pow(Math.random(), 1.6) * 130 * (rr > 1000 ? 0.7 : 1);
-      const cls = h < 48 ? "low" : h < 92 ? "mid" : "tall";
-      counts[cls]++;
-      items.push({ a, rr, h, d, cls, fw: 6 + Math.random() * 14, fd: 6 + Math.random() * 14 });
-    }
-  }
-  const meshes = {};
-  for (const cls of ["low", "mid", "tall"]) {
-    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), MAT_BUILDING[cls], Math.max(1, counts[cls]));
-    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-    meshes[cls] = mesh;
-    scene.add(mesh);
-  }
-  const c = new THREE.Color();
-  const idx = { low: 0, mid: 0, tall: 0 };
-  for (const it of items) {
-    const mesh = meshes[it.cls];
-    const i = idx[it.cls]++;
-    dummy.position.set(Math.cos(it.a) * it.rr, it.d.y + it.h / 2, Math.sin(it.a) * it.rr);
-    dummy.rotation.set(0, Math.random() * Math.PI, 0);
-    dummy.scale.set(it.fw, it.h, it.fd);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(i, dummy.matrix);
-    // лёгкая вариация тона бетона
-    const v = 0.8 + Math.random() * 0.26;
-    c.setRGB(v, v * 0.995, v * 0.985);
-    mesh.setColorAt(i, c);
-  }
-  for (const cls of ["low", "mid", "tall"]) {
-    meshes[cls].instanceMatrix.needsUpdate = true;
-    if (meshes[cls].instanceColor) meshes[cls].instanceColor.needsUpdate = true;
-  }
-}
-buildBuildings();
-
-// --- Маяки на кольцах (маленькие эмиссивные штыри) ---
-function buildBeacons() {
-  const COUNT = 64;
-  const mesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(1.6, 1.6, 26, 6), MAT.cityGlow, COUNT);
-  let i = 0;
-  for (const d of RINGS) {
-    for (let k = 0; k < COUNT / RINGS.length; k++, i++) {
-      const a = Math.random() * Math.PI * 2;
-      const rr = d.rIn + Math.random() * (d.rOut - d.rIn);
-      dummy.position.set(Math.cos(a) * rr, d.y + 13, Math.sin(a) * rr);
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-    }
-  }
-  scene.add(mesh);
-}
-buildBeacons();
-
-// --- Дирижабли: корпус-обтекатель, хвостовой крест, гондола, пунктирные огни ---
-const blimps = [];        // параметры дрейфа
-const airshipParts = {};  // инстанс-меши и локальные матрицы частей
-const tintMats = [];      // материалы, темнеющие в режиме «энергия»
-function buildAirships() {
-  const COUNT = 110;
-  const L = 46, R = 9; // длина и радиус корпуса при масштабе 1
-  const hullRadius = (t) => {
-    if (t < 0.34) return Math.pow(Math.sin((t / 0.34) * Math.PI / 2), 0.75); // эллиптический нос
-    if (t < 0.68) return 1;                                                  // цилиндрический мидель
-    return Math.max(0.05, 1 - Math.pow((t - 0.68) / 0.32, 1.5));             // сужающийся хвост
-  };
-  const profile = [];
-  for (let i = 0; i <= 26; i++) {
-    const t = i / 26;
-    profile.push(new THREE.Vector2(Math.max(0.05, hullRadius(t) * R), (t - 0.5) * L));
-  }
-  const hullGeo = new THREE.LatheGeometry(profile, 30);
-  hullGeo.rotateX(Math.PI / 2); // ось корпуса вдоль Z, нос в +Z
-
-  const finGeo = new THREE.BoxGeometry(0.9, 11, 8);
-  const gondolaGeo = new THREE.BoxGeometry(3.4, 2.6, 9.5);
-  const hullMat = new THREE.MeshStandardMaterial({ color: 0xb3b0ad, roughness: 0.85, metalness: 0.05 });
-  tintMats.push({ mat: hullMat, clay: new THREE.Color(0xb3b0ad), lit: new THREE.Color(0x26313a) });
-
-  const hulls = new THREE.InstancedMesh(hullGeo, hullMat, COUNT);
-  const fins = new THREE.InstancedMesh(finGeo, hullMat, COUNT * 4);
-  const gondolas = new THREE.InstancedMesh(gondolaGeo, hullMat, COUNT);
-  const DOTS_PER = 48; // пояс по миделю + два пунктирных меридиана
-  const dots = new THREE.InstancedMesh(new THREE.BoxGeometry(1.0, 1.0, 1.7), MAT.blimpGlow, COUNT * DOTS_PER);
-
-  const eul = new THREE.Euler();
-  const qq = new THREE.Quaternion();
-  const vp = new THREE.Vector3(), vs = new THREE.Vector3(1, 1, 1);
-  const mm = new THREE.Matrix4();
-  const put = (arr, x, y, z, rz = 0) => {
-    eul.set(0, 0, rz); qq.setFromEuler(eul);
-    mm.compose(vp.set(x, y, z), qq, vs);
-    arr.push(mm.clone());
-  };
-
-  const locals = [];
-  for (let s = 0; s < COUNT; s++) {
-    const a = Math.random() * Math.PI * 2;
-    const rr = 250 + Math.random() * 1250;
-    const y = 120 + Math.random() * 330;
-    blimps.push({
-      a, rr, y, rotY: Math.random() * Math.PI, k: 0.7 + Math.random() * 1.2,
-      va: (Math.random() * 0.008 + 0.004) * (Math.random() < 0.5 ? 1 : -1),
-      vy: (Math.random() - 0.5) * 2.2,
-    });
-
-    const loc = { gondola: null, fins: [], dots: [] };
-    loc.gondola = [];
-    put(loc.gondola, 0, -R * 0.95 - 1.3, 4);
-    // хвостовой крест из 4 стабилизаторов
-    for (let f = 0; f < 4; f++) {
-      const fa = (f * Math.PI) / 2;
-      put(loc.fins, -Math.sin(fa) * 5.2, Math.cos(fa) * 5.2, -L / 2 + 5.0, fa);
-    }
-    // светящийся пояс по миделю
-    for (let d2 = 0; d2 < 20; d2++) {
-      const da = (d2 / 20) * Math.PI * 2;
-      put(loc.dots, Math.cos(da) * R * 1.03, Math.sin(da) * R * 1.03, 0);
-    }
-    // два пунктирных меридиана (как в референсе)
-    for (const ma of [Math.PI / 4, -Math.PI / 6]) {
-      for (let d2 = 0; d2 < 14; d2++) {
-        const t = 0.12 + (d2 / 13) * 0.76;
-        const r2 = hullRadius(t) * R * 1.05;
-        put(loc.dots, Math.cos(ma) * r2, Math.sin(ma) * r2, (t - 0.5) * L);
-      }
-    }
-    locals.push(loc);
-  }
-  scene.add(hulls, fins, gondolas, dots);
-  Object.assign(airshipParts, { hulls, fins, gondolas, dots, locals });
-}
-// расстановка частей относительно базы дирижабля; dt=0 — первичная расстановка
-const shipBase = new THREE.Matrix4(), shipOut = new THREE.Matrix4();
-function layoutAirships(dt) {
-  const AP = airshipParts;
-  if (!AP.hulls) return;
-  let fi = 0, di = 0;
-  for (let s = 0; s < blimps.length; s++) {
-    const b = blimps[s];
-    if (dt > 0) {
-      b.a += b.va * dt; b.y += b.vy * dt;
-      if (b.y < 110 || b.y > 470) b.vy *= -1;
-    }
-    dummy.position.set(Math.cos(b.a) * b.rr, b.y, Math.sin(b.a) * b.rr);
-    dummy.rotation.set(0, b.rotY, 0);
-    dummy.scale.set(b.k, b.k, b.k);
-    dummy.updateMatrix();
-    shipBase.copy(dummy.matrix);
-    AP.hulls.setMatrixAt(s, shipBase);
-    shipOut.multiplyMatrices(shipBase, AP.locals[s].gondola[0]);
-    AP.gondolas.setMatrixAt(s, shipOut);
-    const loc = AP.locals[s];
-    for (let f = 0; f < 4; f++) {
-      shipOut.multiplyMatrices(shipBase, loc.fins[f]);
-      AP.fins.setMatrixAt(fi++, shipOut);
-    }
-    for (let d2 = 0; d2 < loc.dots.length; d2++) {
-      shipOut.multiplyMatrices(shipBase, loc.dots[d2]);
-      AP.dots.setMatrixAt(di++, shipOut);
-    }
-  }
-  AP.hulls.instanceMatrix.needsUpdate = true;
-  AP.fins.instanceMatrix.needsUpdate = true;
-  AP.gondolas.instanceMatrix.needsUpdate = true;
-  AP.dots.instanceMatrix.needsUpdate = true;
-}
-buildAirships();
-layoutAirships(0);
-
-// --- Кабели между кольцами и зданиями ---
-function buildCables() {
-  const pts = [];
-  const SEG = 520;
-  const anchors = [];
-  for (let k = 0; k < 180; k++) {
-    const d = RINGS[k % RINGS.length];
-    const a = Math.random() * Math.PI * 2;
-    const rr = d.rIn + Math.random() * (d.rOut - d.rIn);
-    anchors.push(new THREE.Vector3(Math.cos(a) * rr, d.y + 10 + Math.random() * 60, Math.sin(a) * rr));
-  }
-  for (let k = 0; k < SEG; k++) {
-    const p1 = anchors[(Math.random() * anchors.length) | 0];
-    const p2 = anchors[(Math.random() * anchors.length) | 0];
-    if (p1 === p2 || p1.distanceTo(p2) > 700) continue;
-    // провис по параболе
-    const mid = p1.clone().add(p2).multiplyScalar(0.5);
-    mid.y -= p1.distanceTo(p2) * 0.12 + 8;
-    const curve = new THREE.QuadraticBezierCurve3(p1, mid, p2);
-    const p = curve.getPoints(10);
-    for (let s = 0; s < p.length - 1; s++) pts.push(p[s], p[s + 1]);
-  }
-  const geo = new THREE.BufferGeometry().setFromPoints(pts);
-  const mat = new THREE.LineBasicMaterial({ color: 0x55524f, transparent: true, opacity: 0.35 });
-  scene.add(new THREE.LineSegments(geo, mat));
-}
-buildCables();
-
-// --- Далёкое «второе кольцо» на горизонте для глубины (с окнами) ---
-function buildFarCity() {
-  const COUNT = 2200;
-  const mat = buildingMaterial(14, 6); // мелкие редкие окна — читается как далёкий город
-  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat, COUNT);
-  const c = new THREE.Color();
-  for (let i = 0; i < COUNT; i++) {
-    const a = Math.random() * Math.PI * 2;
-    const rr = 1750 + Math.random() * 1600;
-    const h = 30 + Math.pow(Math.random(), 1.4) * 240;
-    dummy.position.set(Math.cos(a) * rr, h / 2 - 20, Math.sin(a) * rr);
-    dummy.rotation.set(0, Math.random() * Math.PI, 0);
-    dummy.scale.set(10 + Math.random() * 26, h, 10 + Math.random() * 26);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(i, dummy.matrix);
-    const v = 0.8 + Math.random() * 0.2;
-    c.setRGB(v, v * 0.99, v * 0.98);
-    mesh.setColorAt(i, c);
-  }
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  scene.add(mesh);
-}
-buildFarCity();
-
-// ---------- Небо: градиентный купол (цвета анимируются переходом) ----------
-const skyU = {
-  top:    { value: new THREE.Color(0xd8d5d3) },
-  bottom: { value: new THREE.Color(0xc4c1bf) },
-};
-const sky = new THREE.Mesh(
-  new THREE.SphereGeometry(7000, 24, 12),
-  new THREE.ShaderMaterial({
-    side: THREE.BackSide, depthWrite: false, fog: false,
-    uniforms: skyU,
-    vertexShader: `varying vec3 vP;
-      void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: `uniform vec3 top; uniform vec3 bottom; varying vec3 vP;
-      void main(){
-        float h = normalize(vP).y * 0.5 + 0.5;
-        gl_FragColor = vec4(mix(bottom, top, smoothstep(0.38, 0.85, h)), 1.0);
-      }`,
-  })
-);
-scene.add(sky);
-
-// ---------- Дымка над городом (мягкие пятна тумана) ----------
-function softHazeTexture() {
-  const c = document.createElement("canvas");
-  c.width = 128; c.height = 128;
-  const g = c.getContext("2d");
-  const grad = g.createRadialGradient(64, 64, 8, 64, 64, 62);
-  grad.addColorStop(0, "rgba(255,255,255,0.9)");
-  grad.addColorStop(1, "rgba(255,255,255,0)");
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 128, 128);
-  return new THREE.CanvasTexture(c);
-}
-const hazeMat = new THREE.MeshBasicMaterial({
-  map: softHazeTexture(), transparent: true, opacity: 0.05,
-  depthWrite: false, color: 0x9fb8c0, fog: false,
-});
-const hazes = [];
-for (let i = 0; i < 6; i++) {
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(1500 + Math.random() * 900, 200 + Math.random() * 120), hazeMat);
-  m.rotation.x = -Math.PI / 2;
-  const a = Math.random() * Math.PI * 2;
-  const rr = 200 + Math.random() * 1000;
-  m.position.set(Math.cos(a) * rr, 25 + Math.random() * 70, Math.sin(a) * rr);
-  m.userData.spin = (Math.random() - 0.5) * 0.02;
-  scene.add(m);
-  hazes.push(m);
-}
-
-// ============================================================
-// ПОСТ-ОБРАБОТКА (bloom)
-// ============================================================
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-// bloom считается в половинном разрешении — дешевле и мягче
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth * 0.5, innerHeight * 0.5), CLAY.bloomStrength, 0.55, CLAY.bloomThreshold);
-composer.addPass(bloom);
-composer.addPass(new OutputPass());
-
-// ============================================================
-// УПРАВЛЕНИЕ: полёт (pointer lock + drag-фолбэк)
-// ============================================================
-const overlay = document.getElementById("overlay");
-const hud = document.getElementById("hud");
-const modeState = document.getElementById("modeState");
-const toastEl = document.getElementById("toast");
-const speedVal = document.getElementById("speedVal");
-const fpsVal = document.getElementById("fpsVal");
-
-// ---------- адаптивное качество: держим fps, снижая разрешение рендера ----------
-let resScale = Math.min(window.devicePixelRatio, 1.5);
-const RES_MAX = Math.min(window.devicePixelRatio, 1.5);
-let fpsFrames = 0, fpsTime = 0;
-
-let yaw = 0.52, pitch = -0.17; // стартовый взгляд на центр города
-const keys = {};
-let locked = false;
-let dragging = false;
-
-addEventListener("keydown", (e) => {
-  keys[e.code] = true;
-  if (e.code === "KeyF") toggleLit();
-});
-addEventListener("keyup", (e) => { keys[e.code] = false; });
-
-overlay.addEventListener("click", () => {
-  overlay.classList.add("hidden");
-  hud.classList.add("on");
-  renderer.domElement.requestPointerLock?.();
-});
-renderer.domElement.addEventListener("mousedown", () => {
-  if (!locked) { dragging = true; }
-});
-addEventListener("mouseup", () => { dragging = false; });
-document.addEventListener("pointerlockchange", () => {
-  locked = document.pointerLockElement === renderer.domElement;
-});
-addEventListener("mousemove", (e) => {
-  if (!locked && !dragging) return;
-  if (overlay.classList.contains("hidden") === false) return;
-  yaw   -= e.movementX * 0.0023;
-  pitch -= e.movementY * 0.0023;
-  pitch = Math.max(-1.45, Math.min(1.45, pitch));
-});
-addEventListener("resize", () => {
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-  composer.setSize(innerWidth, innerHeight);
-});
-
-// --- Энергия: переключение clay ↔ lit ---
-let toastTimer = null;
-function toggleLit() {
-  litTarget = litTarget === 1 ? 0 : 1;
-  document.body.classList.toggle("lit", litTarget === 1);
-  modeState.textContent = litTarget === 1 ? "ВКЛ · energy" : "ВЫКЛ · clay";
-  toastEl.textContent = litTarget === 1 ? "Энергия включена" : "Энергия выключена";
-  toastEl.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 1600);
-}
-
-// ============================================================
-// ЦИКЛ
-// ============================================================
-const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
-const vel = new THREE.Vector3();
-const fwd = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
-const clock = new THREE.Clock();
-let elapsed = 0;
-
-function animate() {
-  requestAnimationFrame(animate);
-  window.__frame++;
-  const dt = Math.min(clock.getDelta(), 0.05);
-  elapsed += dt;
-
-  // --- движение камеры ---
-  camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, "YXZ"));
-  fwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
-  right.set(1, 0, 0).applyQuaternion(camera.quaternion);
-
-  const base = keys["ShiftLeft"] || keys["ShiftRight"] ? 520 : 150;
-  const acc = new THREE.Vector3();
-  if (keys["KeyW"]) acc.add(fwd);
-  if (keys["KeyS"]) acc.addScaledVector(fwd, -1);
-  if (keys["KeyD"]) acc.add(right);
-  if (keys["KeyA"]) acc.addScaledVector(right, -1);
-  if (keys["KeyE"] || keys["Space"]) acc.add(up);
-  if (keys["KeyQ"] || keys["ControlLeft"]) acc.addScaledVector(up, -1);
-  if (acc.lengthSq() > 0) acc.normalize().multiplyScalar(base);
-  vel.addScaledVector(acc, dt);
-  const damp = Math.pow(0.12, dt); // экспоненциальное затухание, независимо от fps
-  vel.multiplyScalar(damp);
-  camera.position.addScaledVector(vel, dt);
-  if (camera.position.y < 6) { camera.position.y = 6; vel.y = Math.max(0, vel.y); }
-
-  // --- переход clay → lit ---
-  litValue += (litTarget - litValue) * Math.min(1, dt * 1.6);
-  const t = litValue, tc = 1 - t;
-  scene.background.lerpColors(LIT.bg, CLAY.bg, tc);
-  scene.fog.color.lerpColors(LIT.fogColor, CLAY.fogColor, tc);
-  scene.fog.density = CLAY.fogDensity * tc + LIT.fogDensity * t;
-  bloom.strength = CLAY.bloomStrength * tc + LIT.bloomStrength * t;
-  bloom.threshold = CLAY.bloomThreshold * tc + LIT.bloomThreshold * t;
-  hemi.intensity = CLAY.hemi * tc + LIT.hemi * t;
-  hemi.color.lerpColors(LIT.hemiSky, CLAY.hemiSky, tc);
-  hemi.groundColor.lerpColors(LIT.hemiGround, CLAY.hemiGround, tc);
-  sun.intensity = CLAY.dir * tc + LIT.dir * t;
-  sun.color.lerpColors(LIT.dirColor, CLAY.dirColor, tc);
-  skyU.top.value.lerpColors(LIT.skyTop, CLAY.skyTop, tc);
-  skyU.bottom.value.lerpColors(LIT.skyBottom, CLAY.skyBottom, tc);
-  renderer.toneMappingExposure = CLAY.exposure * tc + LIT.exposure * t;
-  hazeMat.opacity = CLAY.haze * tc + LIT.haze * t;
-  const em = CLAY.emissive * tc + LIT.emissive * t;
-  for (const e of emissives) e.mat.emissiveIntensity = em * e.factor;
-  for (const tm of tintMats) tm.mat.color.lerpColors(tm.lit, tm.clay, tc); // корпуса дирижаблей темнеют ночью
-  central.userData.centerLight.intensity = CLAY.centerLight * tc + LIT.centerLight * t;
-
-  // --- анимации мира ---
-  const spin = reducedMotion ? 0.15 : 1;
-  for (const o of central.userData.orbits) o.rotation.y += o.userData.speed * dt * spin;
-  if (!reducedMotion) for (const h of hazes) h.rotation.z += h.userData.spin * dt * 8;
-  if (!reducedMotion) {
-    central.rotation.y += dt * 0.02;
-    layoutAirships(dt); // дрейф дирижаблей: корпус, крест, гондола и огни следуют за базой
-  }
-
-  speedVal.textContent = Math.round(vel.length());
-
-  // --- fps-метр и адаптивное разрешение ---
-  fpsFrames++; fpsTime += dt;
-  if (fpsTime >= 1) {
-    const fps = Math.round(fpsFrames / fpsTime);
-    fpsVal.textContent = fps;
-    if (fps < 38 && resScale > 0.5) {
-      resScale = Math.max(0.5, resScale - 0.25);
-      renderer.setPixelRatio(resScale);
-      composer.setSize(innerWidth, innerHeight);
-    } else if (fps > 72 && resScale < RES_MAX) {
-      resScale = Math.min(RES_MAX, resScale + 0.25);
-      renderer.setPixelRatio(resScale);
-      composer.setSize(innerWidth, innerHeight);
-    }
-    fpsFrames = 0; fpsTime = 0;
-  }
-
-  composer.render();
-}
-animate();
-</script>
+<script type="module" src="./src/main.js"></script>
 </body>
 </html>

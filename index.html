@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CLAY CITY — Ring Metropolis</title>
+<style>
+  :root {
+    --accent: #35e0ff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #cfcccb; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; }
+
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  /* ---------- Стартовый оверлей ---------- */
+  #overlay {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 50% 40%, rgba(207,204,203,.55) 0%, rgba(140,138,136,.85) 100%);
+    backdrop-filter: blur(2px);
+    color: #23211f; text-align: center;
+    transition: opacity .6s ease; cursor: pointer;
+  }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+  #overlay h1 {
+    font-size: clamp(42px, 8vw, 96px); font-weight: 800; letter-spacing: .12em;
+    color: #1c1a19; text-transform: uppercase;
+  }
+  #overlay h1 span { color: #4a4846; font-weight: 300; }
+  #overlay .sub {
+    margin-top: 6px; font-size: clamp(13px, 1.6vw, 17px); color: #3d3b39; letter-spacing: .28em;
+    text-transform: uppercase;
+  }
+  #overlay .controls {
+    margin-top: 34px; display: grid; grid-template-columns: auto auto; gap: 6px 18px;
+    font-size: 14px; color: #33312f; text-align: left;
+  }
+  #overlay .controls b {
+    font-weight: 700; background: #23211f; color: #e8e6e4; border-radius: 5px;
+    padding: 1px 9px; font-size: 12px; letter-spacing: .05em;
+  }
+  #overlay .start {
+    margin-top: 40px; font-size: 15px; letter-spacing: .2em; text-transform: uppercase;
+    color: #1c1a19; border: 1.5px solid #1c1a19; padding: 12px 34px; border-radius: 999px;
+    animation: pulse 2.2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; z-index: 5; pointer-events: none; opacity: 0; transition: opacity .6s; }
+  #hud.on { opacity: 1; }
+  #crosshair {
+    position: absolute; left: 50%; top: 50%; width: 6px; height: 6px;
+    margin: -3px 0 0 -3px; border-radius: 50%;
+    background: rgba(30,28,27,.8); box-shadow: 0 0 0 1.5px rgba(255,255,255,.5);
+    transition: background .8s;
+  }
+  body.lit #crosshair { background: rgba(160,240,255,.95); box-shadow: 0 0 8px var(--accent), 0 0 0 1.5px rgba(20,40,45,.8); }
+  #mode {
+    position: absolute; top: 18px; right: 22px; text-align: right;
+    font-size: 12px; letter-spacing: .22em; text-transform: uppercase; color: #3d3b39;
+  }
+  #mode .state { font-weight: 700; font-size: 14px; margin-top: 2px; }
+  body.lit #mode { color: #9feaf8; }
+  #speed {
+    position: absolute; bottom: 18px; left: 22px;
+    font-size: 12px; letter-spacing: .18em; color: #3d3b39; text-transform: uppercase;
+  }
+  body.lit #speed { color: #8fdcea; }
+  #vignette {
+    position: fixed; inset: 0; z-index: 4; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 62%, rgba(0,0,0,.22) 100%);
+    transition: opacity 1s;
+  }
+  #toast {
+    position: fixed; z-index: 6; left: 50%; top: 64px; transform: translateX(-50%);
+    padding: 8px 22px; border-radius: 999px; font-size: 13px; letter-spacing: .25em;
+    text-transform: uppercase; color: #1c1a19; background: rgba(232,230,228,.85);
+    opacity: 0; transition: opacity .4s; pointer-events: none;
+  }
+  body.lit #toast { color: #dff8ff; background: rgba(16,42,50,.75); }
+  #toast.show { opacity: 1; }
+  #err {
+    position: fixed; inset: 0; z-index: 50; display: none;
+    align-items: center; justify-content: center; color: #901c1c;
+    background: #e8e6e4; font-size: 18px; padding: 40px; text-align: center;
+  }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="vignette"></div>
+
+  <div id="hud">
+    <div id="crosshair"></div>
+    <div id="mode">Энергия <span class="state" id="modeState">ВЫКЛ · clay</span></div>
+    <div id="speed"><span id="speedVal">0</span> м/с · <b>WASD</b> полёт · <b>Q/E</b> вниз/вверх · <b>Shift</b> ускорение · <b>F</b> энергия · <b>Esc</b> курсор</div>
+  </div>
+  <div id="toast"></div>
+
+  <div id="overlay">
+    <h1>Clay<span>City</span></h1>
+    <div class="sub">Кольцевой мегаполис · прототип в стиле clay-render</div>
+    <div class="controls">
+      <div><b>W A S D</b></div><div>полёт</div>
+      <div><b>Мышь</b></div><div>обзор (клик — захват курсора)</div>
+      <div><b>Q / E</b></div><div>снижение / набор высоты</div>
+      <div><b>Shift</b></div><div>форсаж</div>
+      <div><b>F</b></div><div>включить энергию города</div>
+    </div>
+    <div class="start">Клик — начать полёт</div>
+  </div>
+
+  <div id="err"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+
+// ============================================================
+// РЕНДЕРЕР / СЦЕНА / КАМЕРА
+// ============================================================
+const app = document.getElementById("app");
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+} catch (e) {
+  document.getElementById("err").style.display = "flex";
+  document.getElementById("err").textContent = "WebGL недоступен в этом браузере: " + e.message;
+  throw e;
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+renderer.setSize(innerWidth, innerHeight, false);
+app.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.5, 12000);
+camera.position.set(860, 420, 1480);
+camera.rotation.order = "YXZ";
+
+// ============================================================
+// СОСТОЯНИЕ «ГЛИНА → ЭНЕРГИЯ» (переход 0..1)
+// ============================================================
+const CLAY = {
+  bg:        new THREE.Color(0xcfcccb),
+  fogColor:  new THREE.Color(0xc7c4c2),
+  fogDensity: 0.00042,
+  bloomStrength: 0.10,
+  bloomThreshold: 0.75,
+  hemi: 1.05, hemiSky: new THREE.Color(0xffffff), hemiGround: new THREE.Color(0x8e8b89),
+  dir: 0.85, dirColor: new THREE.Color(0xffffff),
+  emissive: 0.0,
+  centerLight: 0.0,
+};
+const LIT = {
+  bg:        new THREE.Color(0x10181e),
+  fogColor:  new THREE.Color(0x12242c),
+  fogDensity: 0.00036,
+  bloomStrength: 0.95,
+  bloomThreshold: 0.22,
+  hemi: 0.32, hemiSky: new THREE.Color(0x3d5a66), hemiGround: new THREE.Color(0x0c1216),
+  dir: 0.28, dirColor: new THREE.Color(0x9fd8e8),
+  emissive: 1.0,
+  centerLight: 2.2,
+};
+
+let litTarget = 0;   // куда движемся (0 = clay, 1 = lit)
+let litValue = 0;    // текущее состояние перехода
+
+scene.background = CLAY.bg.clone();
+scene.fog = new THREE.FogExp2(CLAY.fogColor.clone(), CLAY.fogDensity);
+
+const hemi = new THREE.HemisphereLight(CLAY.hemiSky, CLAY.hemiGround, CLAY.hemi);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(CLAY.dirColor, CLAY.dir);
+sun.position.set(700, 1200, 400);
+scene.add(sun);
+
+// ============================================================
+// МАТЕРИАЛЫ (clay-серые + эмиссия для «энергии»)
+// ============================================================
+const clayBase = new THREE.MeshStandardMaterial({ color: 0xb9b6b3, roughness: 0.95, metalness: 0.0 });
+const clayDark = new THREE.MeshStandardMaterial({ color: 0xa3a09d, roughness: 0.95, metalness: 0.0 });
+
+// Эмиссивные материалы — интенсивность анимируется переходом
+function emissiveMat(hex, base = 0x2a2d2f) {
+  const m = new THREE.MeshStandardMaterial({ color: base, roughness: 0.7, metalness: 0.0 });
+  m.emissive = new THREE.Color(hex);
+  m.emissiveIntensity = 0.0;
+  emissives.push(m);
+  return m;
+}
+const emissives = []; // список для анимации
+const MAT = {
+  ringGlow:  emissiveMat(0x35e0ff), // кромки колец
+  core:      emissiveMat(0xbfffee), // ядро центра
+  blimpGlow: emissiveMat(0x8fe8ff), // огни дирижаблей
+  cityGlow:  emissiveMat(0x35e0ff), // маяки
+};
+
+// ============================================================
+// ГЕОМЕТРИЯ ГОРОДА
+// ============================================================
+const dummy = new THREE.Object3D();
+
+// --- Центральная структура: основание, ядро-сфера, орбитальные кольца ---
+function buildCentral() {
+  const g = new THREE.Group();
+
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(95, 130, 150, 48), clayDark);
+  base.position.y = 75;
+  g.add(base);
+
+  const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(55, 85, 70, 40), clayBase);
+  pedestal.position.y = 185;
+  g.add(pedestal);
+
+  const core = new THREE.Mesh(new THREE.SphereGeometry(64, 48, 36), MAT.core);
+  core.position.y = 330;
+  g.add(core);
+
+  // орбитальные кольца (вращаются)
+  const orbitRings = [];
+  const ringDefs = [
+    { r: 105, tube: 3.2, tilt: 0.45, speed: 0.10, y: 330 },
+    { r: 135, tube: 2.4, tilt: -0.35, speed: -0.07, y: 330 },
+    { r: 170, tube: 1.8, tilt: 1.15, speed: 0.05, y: 330 },
+  ];
+  for (const d of ringDefs) {
+    const orbit = new THREE.Group();
+    orbit.position.y = d.y;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(d.r, d.tube, 10, 96), clayBase);
+    ring.rotation.x = Math.PI / 2;
+    const glow = new THREE.Mesh(new THREE.TorusGeometry(d.r, d.tube * 0.4, 8, 96), MAT.ringGlow);
+    glow.rotation.x = Math.PI / 2;
+    orbit.add(ring, glow);
+    orbit.rotation.z = d.tilt;
+    orbit.userData.speed = d.speed;
+    orbitRings.push(orbit);
+    g.add(orbit);
+  }
+  g.userData.orbits = orbitRings;
+
+  // центральный свет «энергии»
+  const point = new THREE.PointLight(0x4be8ff, 0, 2600, 1.6);
+  point.position.set(0, 330, 0);
+  g.add(point);
+  g.userData.centerLight = point;
+
+  scene.add(g);
+  return g;
+}
+const central = buildCentral();
+
+// --- Плавающие кольцевые платформы с кварталами зданий ---
+const RINGS = [
+  { rIn: 210, rOut: 560, y:   0 },
+  { rIn: 640, rOut: 900, y:  55 },
+  { rIn: 980, rOut:1180, y: 110 },
+  { rIn:1280, rOut:1420, y: 150 },
+];
+
+const ringDiscs = [];
+for (const d of RINGS) {
+  const rMid = (d.rIn + d.rOut) / 2, w = (d.rOut - d.rIn);
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(rMid + w / 2, rMid + w / 2, 14, 96, 1), clayDark);
+  // цилиндр сплошной — «дырку» имитировать нечем, но изнутри её не видно из-за зданий и тумана.
+  disc.position.y = d.y - 7;
+  scene.add(disc);
+  ringDiscs.push(disc);
+  // светящаяся кромка кольца
+  const edge = new THREE.Mesh(new THREE.TorusGeometry(rMid + w / 2, 1.6, 8, 128), MAT.ringGlow);
+  edge.rotation.x = Math.PI / 2;
+  edge.position.y = d.y + 0.5;
+  scene.add(edge);
+}
+
+// --- Здания: инстансы по кольцам ---
+function buildBuildings() {
+  const COUNT = 6500;
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), clayBase, COUNT);
+  mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  const c = new THREE.Color();
+  let i = 0;
+  for (const d of RINGS) {
+    const rMid = (d.rIn + d.rOut) / 2, w = (d.rOut - d.rIn);
+    const n = Math.floor(COUNT * (w / 1210)); // плотнее на внешних
+    for (let k = 0; k < n && i < COUNT; k++, i++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = rMid + (Math.random() - 0.5) * w * 0.92;
+      const h = 18 + Math.pow(Math.random(), 1.6) * 130 * (rr > 1000 ? 0.7 : 1);
+      const fw = 6 + Math.random() * 14;
+      const fd = 6 + Math.random() * 14;
+      dummy.position.set(Math.cos(a) * rr, d.y + h / 2, Math.sin(a) * rr);
+      dummy.rotation.set(0, Math.random() * Math.PI, 0);
+      dummy.scale.set(fw, h, fd);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      // лёгкая вариация тона «глины»
+      const v = 0.88 + Math.random() * 0.24;
+      c.setRGB(v, v * 0.995, v * 0.985);
+      mesh.setColorAt(i, c);
+    }
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  scene.add(mesh);
+  return mesh;
+}
+buildBuildings();
+
+// --- Маяки на кольцах (маленькие эмиссивные штыри) ---
+function buildBeacons() {
+  const COUNT = 64;
+  const mesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(1.6, 1.6, 26, 6), MAT.cityGlow, COUNT);
+  let i = 0;
+  for (const d of RINGS) {
+    for (let k = 0; k < COUNT / RINGS.length; k++, i++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = d.rIn + Math.random() * (d.rOut - d.rIn);
+      dummy.position.set(Math.cos(a) * rr, d.y + 13, Math.sin(a) * rr);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+  }
+  scene.add(mesh);
+}
+buildBeacons();
+
+// --- Дирижабли: сферы + светящиеся «швы» ---
+const blimps = [];
+function buildBlimps() {
+  const COUNT = 110;
+  const spheres = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 24, 18), clayBase, COUNT);
+  const seams  = new THREE.InstancedMesh(new THREE.TorusGeometry(1.02, 0.02, 6, 48), MAT.blimpGlow, COUNT * 2);
+  let si = 0, ti = 0;
+  for (let k = 0; k < COUNT; k++) {
+    const a = Math.random() * Math.PI * 2;
+    const rr = 250 + Math.random() * 1250;
+    const y = 120 + Math.random() * 330;
+    const s = 9 + Math.random() * 16;
+    const pos = new THREE.Vector3(Math.cos(a) * rr, y, Math.sin(a) * rr);
+    const rotY = Math.random() * Math.PI;
+    const drift = { a, rr, y, s, rotY, va: (Math.random() * 0.008 + 0.004) * (Math.random() < 0.5 ? 1 : -1), vy: (Math.random() - 0.5) * 2.2 };
+    blimps.push(drift);
+
+    dummy.position.copy(pos); dummy.rotation.set(0, rotY, 0); dummy.scale.set(s * 1.25, s, s * 1.25);
+    dummy.updateMatrix(); spheres.setMatrixAt(si++, dummy.matrix);
+
+    // два «шва»-кольца по меридиану
+    for (let m = 0; m < 2; m++) {
+      dummy.position.copy(pos);
+      dummy.rotation.set(Math.PI / 2, 0, rotY + (m ? Math.PI / 2.6 : 0));
+      dummy.scale.set(s * 1.25, s * 1.25, s * 1.25);
+      dummy.updateMatrix(); seams.setMatrixAt(ti++, dummy.matrix);
+    }
+  }
+  spheres.instanceMatrix.needsUpdate = true;
+  seams.instanceMatrix.needsUpdate = true;
+  scene.add(spheres, seams);
+  seams.userData.follow = true;
+  // швы анимируем вместе с блымпами (переустановка матриц в цикле)
+  seamsRef = seams; spheresRef = spheres;
+}
+let seamsRef = null, spheresRef = null;
+buildBlimps();
+
+// --- Кабели между кольцами и зданиями ---
+function buildCables() {
+  const pts = [];
+  const SEG = 520;
+  const anchors = [];
+  for (let k = 0; k < 180; k++) {
+    const d = RINGS[k % RINGS.length];
+    const a = Math.random() * Math.PI * 2;
+    const rr = d.rIn + Math.random() * (d.rOut - d.rIn);
+    anchors.push(new THREE.Vector3(Math.cos(a) * rr, d.y + 10 + Math.random() * 60, Math.sin(a) * rr));
+  }
+  for (let k = 0; k < SEG; k++) {
+    const p1 = anchors[(Math.random() * anchors.length) | 0];
+    const p2 = anchors[(Math.random() * anchors.length) | 0];
+    if (p1 === p2 || p1.distanceTo(p2) > 700) continue;
+    // провис по параболе
+    const mid = p1.clone().add(p2).multiplyScalar(0.5);
+    mid.y -= p1.distanceTo(p2) * 0.12 + 8;
+    const curve = new THREE.QuadraticBezierCurve3(p1, mid, p2);
+    const p = curve.getPoints(10);
+    for (let s = 0; s < p.length - 1; s++) pts.push(p[s], p[s + 1]);
+  }
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const mat = new THREE.LineBasicMaterial({ color: 0x55524f, transparent: true, opacity: 0.35 });
+  scene.add(new THREE.LineSegments(geo, mat));
+}
+buildCables();
+
+// --- Далёкое «второе кольцо» на горизонте для глубины ---
+function buildFarCity() {
+  const COUNT = 2200;
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), clayDark, COUNT);
+  const c = new THREE.Color();
+  for (let i = 0; i < COUNT; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const rr = 1750 + Math.random() * 1600;
+    const h = 30 + Math.pow(Math.random(), 1.4) * 240;
+    dummy.position.set(Math.cos(a) * rr, h / 2 - 20, Math.sin(a) * rr);
+    dummy.rotation.set(0, Math.random() * Math.PI, 0);
+    dummy.scale.set(10 + Math.random() * 26, h, 10 + Math.random() * 26);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+    const v = 0.8 + Math.random() * 0.2;
+    c.setRGB(v, v * 0.99, v * 0.98);
+    mesh.setColorAt(i, c);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  scene.add(mesh);
+}
+buildFarCity();
+
+// ============================================================
+// ПОСТ-ОБРАБОТКА (bloom)
+// ============================================================
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), CLAY.bloomStrength, 0.55, CLAY.bloomThreshold);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ============================================================
+// УПРАВЛЕНИЕ: полёт (pointer lock + drag-фолбэк)
+// ============================================================
+const overlay = document.getElementById("overlay");
+const hud = document.getElementById("hud");
+const modeState = document.getElementById("modeState");
+const toastEl = document.getElementById("toast");
+const speedVal = document.getElementById("speedVal");
+
+let yaw = 0.52, pitch = -0.17; // стартовый взгляд на центр города
+const keys = {};
+let locked = false;
+let dragging = false;
+
+addEventListener("keydown", (e) => {
+  keys[e.code] = true;
+  if (e.code === "KeyF") toggleLit();
+});
+addEventListener("keyup", (e) => { keys[e.code] = false; });
+
+overlay.addEventListener("click", () => {
+  overlay.classList.add("hidden");
+  hud.classList.add("on");
+  renderer.domElement.requestPointerLock?.();
+});
+renderer.domElement.addEventListener("mousedown", () => {
+  if (!locked) { dragging = true; }
+});
+addEventListener("mouseup", () => { dragging = false; });
+document.addEventListener("pointerlockchange", () => {
+  locked = document.pointerLockElement === renderer.domElement;
+});
+addEventListener("mousemove", (e) => {
+  if (!locked && !dragging) return;
+  if (overlay.classList.contains("hidden") === false) return;
+  yaw   -= e.movementX * 0.0023;
+  pitch -= e.movementY * 0.0023;
+  pitch = Math.max(-1.45, Math.min(1.45, pitch));
+});
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight, false);
+  composer.setSize(innerWidth, innerHeight);
+});
+
+// --- Энергия: переключение clay ↔ lit ---
+let toastTimer = null;
+function toggleLit() {
+  litTarget = litTarget === 1 ? 0 : 1;
+  document.body.classList.toggle("lit", litTarget === 1);
+  modeState.textContent = litTarget === 1 ? "ВКЛ · energy" : "ВЫКЛ · clay";
+  toastEl.textContent = litTarget === 1 ? "Энергия включена" : "Энергия выключена";
+  toastEl.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 1600);
+}
+
+// ============================================================
+// ЦИКЛ
+// ============================================================
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const vel = new THREE.Vector3();
+const fwd = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+const clock = new THREE.Clock();
+let elapsed = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  elapsed += dt;
+
+  // --- движение камеры ---
+  camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, "YXZ"));
+  fwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+  right.set(1, 0, 0).applyQuaternion(camera.quaternion);
+
+  const base = keys["ShiftLeft"] || keys["ShiftRight"] ? 520 : 150;
+  const acc = new THREE.Vector3();
+  if (keys["KeyW"]) acc.add(fwd);
+  if (keys["KeyS"]) acc.addScaledVector(fwd, -1);
+  if (keys["KeyD"]) acc.add(right);
+  if (keys["KeyA"]) acc.addScaledVector(right, -1);
+  if (keys["KeyE"] || keys["Space"]) acc.add(up);
+  if (keys["KeyQ"] || keys["ControlLeft"]) acc.addScaledVector(up, -1);
+  if (acc.lengthSq() > 0) acc.normalize().multiplyScalar(base);
+  vel.addScaledVector(acc, dt);
+  const damp = Math.pow(0.12, dt); // экспоненциальное затухание, независимо от fps
+  vel.multiplyScalar(damp);
+  camera.position.addScaledVector(vel, dt);
+  if (camera.position.y < 6) { camera.position.y = 6; vel.y = Math.max(0, vel.y); }
+
+  // --- переход clay → lit ---
+  litValue += (litTarget - litValue) * Math.min(1, dt * 1.6);
+  const t = litValue, tc = 1 - t;
+  scene.background.lerpColors(LIT.bg, CLAY.bg, tc);
+  scene.fog.color.lerpColors(LIT.fogColor, CLAY.fogColor, tc);
+  scene.fog.density = CLAY.fogDensity * tc + LIT.fogDensity * t;
+  bloom.strength = CLAY.bloomStrength * tc + LIT.bloomStrength * t;
+  bloom.threshold = CLAY.bloomThreshold * tc + LIT.bloomThreshold * t;
+  hemi.intensity = CLAY.hemi * tc + LIT.hemi * t;
+  hemi.color.lerpColors(LIT.hemiSky, CLAY.hemiSky, tc);
+  hemi.groundColor.lerpColors(LIT.hemiGround, CLAY.hemiGround, tc);
+  sun.intensity = CLAY.dir * tc + LIT.dir * t;
+  sun.color.lerpColors(LIT.dirColor, CLAY.dirColor, tc);
+  const em = CLAY.emissive * tc + LIT.emissive * t;
+  for (const m of emissives) m.emissiveIntensity = em * (m === MAT.core ? 2.4 : 1.1);
+  central.userData.centerLight.intensity = CLAY.centerLight * tc + LIT.centerLight * t;
+
+  // --- анимации мира ---
+  const spin = reducedMotion ? 0.15 : 1;
+  for (const o of central.userData.orbits) o.rotation.y += o.userData.speed * dt * spin;
+  if (!reducedMotion) {
+    central.rotation.y += dt * 0.02;
+    // дрейф дирижаблей + переустановка матриц
+    if (seamsRef && spheresRef) {
+      let si = 0, ti = 0;
+      for (const b of blimps) {
+        b.a += b.va * dt; b.y += b.vy * dt;
+        if (b.y < 110 || b.y > 470) b.vy *= -1;
+        const x = Math.cos(b.a) * b.rr, z = Math.sin(b.a) * b.rr;
+        dummy.position.set(x, b.y, z);
+        dummy.rotation.set(0, b.rotY, 0);
+        dummy.scale.set(b.s * 1.25, b.s, b.s * 1.25);
+        dummy.updateMatrix(); spheresRef.setMatrixAt(si++, dummy.matrix);
+        for (let m = 0; m < 2; m++) {
+          dummy.rotation.set(Math.PI / 2, 0, b.rotY + (m ? Math.PI / 2.6 : 0));
+          dummy.updateMatrix(); seamsRef.setMatrixAt(ti++, dummy.matrix);
+        }
+      }
+      spheresRef.instanceMatrix.needsUpdate = true;
+      seamsRef.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  speedVal.textContent = Math.round(vel.length());
+  composer.render();
+}
+animate();
+</script>
+</body>
+</html>

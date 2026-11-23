@@ -34,7 +34,7 @@ void main() {
   float d0 = texture2D(tDepth, vUv).r;
   if (d0 >= 0.999999) { gl_FragColor = vec4(1.0); return; }
   vec3 P = viewPos(vUv, d0);
-  float dist = -P.z;
+  float dist = max(-P.z, 0.05);
   vec2 ex = vec2(uTexel.x, 0.0), ey = vec2(0.0, uTexel.y);
   float dl = texture2D(tDepth, vUv - ex).r, dr = texture2D(tDepth, vUv + ex).r, dd = texture2D(tDepth, vUv - ey).r, du = texture2D(tDepth, vUv + ey).r;
   vec3 pl = viewPos(vUv - ex, dl), pr = viewPos(vUv + ex, dr), pd = viewPos(vUv - ey, dd), pu = viewPos(vUv + ey, du);
@@ -42,38 +42,59 @@ void main() {
   vec3 dy = abs(pu.z - P.z) < abs(pd.z - P.z) ? pu - P : P - pd;
   vec3 N = cross(dx, dy);
   N = normalize(N * sign(N.z + 1e-7) + vec3(0.0, 0.0, 1e-7));
-  float radius = clamp(dist * uRadiusK, uRMin, uRMax);
-  float radiusPx = min(radius * uProjScale / dist, uMaxPx);
+  float closeR = mix(0.65, 2.4, smoothstep(1.0, 24.0, dist));
+  float farR = clamp(dist * uRadiusK, uRMin, uRMax);
+  float radius = mix(closeR, farR, smoothstep(12.0, 60.0, dist));
+  float radiusPx = clamp(radius * uProjScale / dist, 3.0, uMaxPx);
   float ang = ign(gl_FragCoord.xy) * 6.2831853;
   float occ = 0.0;
+  float wSum = 0.0;
+  float bias = mix(0.035, 0.09, smoothstep(2.0, 45.0, dist));
   for (int i = 0; i < SAMPLES; i++) {
     float fi = float(i);
     float a = ang + fi * 2.399963;
     float rr = sqrt((fi + 0.5) / float(SAMPLES));
-    vec2 suv = vUv + vec2(cos(a), sin(a)) * rr * radiusPx * uTexel;
+    vec2 suv = clamp(vUv + vec2(cos(a), sin(a)) * rr * radiusPx * uTexel, vec2(0.001), vec2(0.999));
     float ds = texture2D(tDepth, suv).r;
-    if (ds >= 0.999999) continue;
+    if (ds >= 0.999999) { wSum += 1.0; continue; }
     vec3 v = viewPos(suv, ds) - P;
     float vl = length(v);
-    float ndv = dot(N, v) / max(vl, 1e-5);
-    occ += max(0.0, ndv - 0.08) * (1.0 - smoothstep(radius * 0.45, radius, vl));
+    float ndv = dot(N, v) / max(vl, 1e-4);
+    float falloff = 1.0 - smoothstep(radius * 0.25, radius * 1.15, vl);
+    float rangeGate = step(vl, radius * 1.45);
+    occ += max(0.0, ndv - bias) * falloff * rangeGate;
+    wSum += 1.0;
   }
-  float ao = clamp(1.0 - occ * (uIntensity * 2.3 / float(SAMPLES)), 0.0, 1.0);
-  ao = mix(1.0, ao, smoothstep(2.0, 14.0, dist) * (1.0 - smoothstep(350.0, 900.0, dist)));
-  gl_FragColor = vec4(pow(ao, 1.3));
+  float ao = clamp(1.0 - (occ / max(wSum, 1.0)) * (uIntensity * 2.45), 0.0, 1.0);
+  float distFade = smoothstep(0.35, 0.85, dist) * (1.0 - smoothstep(210.0, 460.0, dist));
+  ao = mix(1.0, ao, distFade);
+  gl_FragColor = vec4(pow(ao, 1.35));
 }`;
 
 const BLUR_FS = `
-uniform sampler2D tAO; uniform sampler2D tDepth; uniform vec2 uDir;
+uniform sampler2D tAO; uniform sampler2D tDepth; uniform vec2 uDir; uniform mat4 uProjInv;
 varying vec2 vUv;
+float linearZ(vec2 uv) {
+  float d = texture2D(tDepth, uv).r;
+  if (d >= 0.999999) return 16000.0;
+  vec4 v = uProjInv * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+  return max(-v.z / v.w, 0.05);
+}
 void main() {
-  float d0 = texture2D(tDepth, vUv).r, a = texture2D(tAO, vUv).r, w = 1.0, thr = 0.12 * (1.0 - d0) + 2e-6;
-  float ws[3]; ws[0] = 1.0; ws[1] = 0.62; ws[2] = 0.3;
+  float z0 = linearZ(vUv);
+  float a = texture2D(tAO, vUv).r;
+  if (z0 > 1200.0) { gl_FragColor = vec4(a); return; }
+  float w = 1.0;
+  float thr = max(0.22, z0 * 0.032);
+  float ws[3]; ws[0] = 0.72; ws[1] = 0.42; ws[2] = 0.20;
   for (int i = 1; i <= 3; i++) {
     vec2 o = uDir * float(i);
-    float da = texture2D(tDepth, vUv + o).r, db = texture2D(tDepth, vUv - o).r;
-    float wa = ws[i - 1] * ws[i - 1] * step(abs(da - d0), thr), wb = ws[i - 1] * ws[i - 1] * step(abs(db - d0), thr);
-    a += texture2D(tAO, vUv + o).r * wa + texture2D(tAO, vUv - o).r * wb; w += wa + wb;
+    float za = linearZ(vUv + o);
+    float zb = linearZ(vUv - o);
+    float wa = ws[i - 1] * exp(-abs(za - z0) / thr);
+    float wb = ws[i - 1] * exp(-abs(zb - z0) / thr);
+    a += texture2D(tAO, vUv + o).r * wa + texture2D(tAO, vUv - o).r * wb;
+    w += wa + wb;
   }
   gl_FragColor = vec4(a / w);
 }`;
@@ -94,21 +115,20 @@ void main() {
     float dist = max(length(rel), 1e-4); vec3 dir = rel / dist;
     float ao = texture2D(tAO, vUv).r;
     col.rgb *= mix(1.0, ao, uAO);
-    // экспоненциальный высотный туман (оптическая толща пропорциональна dist)
+    // экспоненциальный высотный туман с чистой ближней и средней зоной
     float x = (P.y - cameraPosition.y) * uFogFalloff;
     float k = abs(x) > 1e-3 ? (1.0 - exp(-x)) / x : 1.0 - 0.5 * x;
-    // в кибер-режиме — более плотный, влажный неоновый туман
-    float cyberFogBoost = 1.0 + uCyber * 0.55;
+    float cyberFogBoost = 1.0 + uCyber * 0.22;
+    float nearClear = smoothstep(180.0, 520.0, dist);
     float F = dist * uFogDensity * cyberFogBoost * exp(-max(cameraPosition.y - uFogBase, 0.0) * uFogFalloff) * k;
-    float fog = clamp(1.0 - exp(-F), 0.0, 0.92);
+    float farBlend = smoothstep(2600.0, 4800.0, dist);
+    float fog = max(clamp((1.0 - exp(-F)) * nearClear, 0.0, 0.56), farBlend * 0.96);
     vec3 fc = mix(uFogHorizon, uFogZenith, smoothstep(0.0, 0.55, dir.y));
     float mu = max(dot(dir, uSunDir), 0.0);
-    fc += uSunColor * (pow(mu, 5.0) * 0.22 + pow(mu, 40.0) * 0.4 + pow(mu, 700.0) * 1.5) * uSunGlow;
-    // свет города в дымке (насыщенный и глубокий, без молочной засветки!)
-    float ring = exp(-abs(P.y - uFogBase) / 220.0) * (1.0 - smoothstep(1000.0, 3600.0, length(P.xz)));
-    fc += vec3(0.10, 0.05, 0.025) * ring * uNight * (1.0 - uCyber * 0.55) * (0.5 + 0.5 * exp(-dist / 2400.0));
-    // кибер-неоновая атмосферная дымка (глубокий индиго-фиолетовый + циан)
-    vec3 cyberFog = vec3(0.075, 0.028, 0.155) + vec3(0.0, 0.042, 0.065);
+    fc += uSunColor * (pow(mu, 5.0) * 0.16 + pow(mu, 40.0) * 0.32 + pow(mu, 700.0) * 1.2) * uSunGlow;
+    float ring = exp(-abs(P.y - uFogBase) / 220.0) * (1.0 - smoothstep(1200.0, 3800.0, length(P.xz)));
+    fc += vec3(0.05, 0.025, 0.012) * ring * uNight * (1.0 - uCyber * 0.65) * (0.5 + 0.5 * exp(-dist / 2400.0));
+    vec3 cyberFog = vec3(0.016, 0.008, 0.040) + vec3(0.0, 0.010, 0.018);
     fc += cyberFog * uCyber * ring;
     col.rgb = mix(col.rgb, fc, fog);
   }
@@ -136,11 +156,14 @@ class AtmospherePass extends Pass {
     this.shared = shared;
     this.aoMat = new THREE.ShaderMaterial({
       uniforms: { tDepth: { value: null }, uTexel: { value: new THREE.Vector2(1, 1) }, uProjScale: { value: 400 }, uFrame: { value: 0 },
-        uRadiusK: { value: 0.05 }, uRMin: { value: 1.2 }, uRMax: { value: 140 }, uMaxPx: { value: 13 }, uIntensity: { value: 1.15 },
+        uRadiusK: { value: 0.045 }, uRMin: { value: 0.5 }, uRMax: { value: 28 }, uMaxPx: { value: 22 }, uIntensity: { value: 1.25 },
         uProjInv: shared.uProjInv, uNear: shared.uNear, uFar: shared.uFar },
       vertexShader: VS, fragmentShader: AO_FS(tier.aoSamples), depthTest: false, depthWrite: false,
     });
-    this.blurMat = new THREE.ShaderMaterial({ uniforms: { tAO: { value: null }, tDepth: { value: null }, uDir: { value: new THREE.Vector2() } }, vertexShader: VS, fragmentShader: BLUR_FS, depthTest: false, depthWrite: false });
+    this.blurMat = new THREE.ShaderMaterial({
+      uniforms: { tAO: { value: null }, tDepth: { value: null }, uDir: { value: new THREE.Vector2() }, uProjInv: shared.uProjInv },
+      vertexShader: VS, fragmentShader: BLUR_FS, depthTest: false, depthWrite: false,
+    });
     this.fogMat = new THREE.ShaderMaterial({ uniforms: { tDiffuse: { value: null }, tDepth: { value: null }, tAO: { value: null }, ...shared }, vertexShader: VS, fragmentShader: FOG_FS, depthTest: false, depthWrite: false });
     this.white = new THREE.MeshBasicMaterial();
     this.quad = new FullScreenQuad(this.aoMat);

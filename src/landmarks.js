@@ -23,7 +23,7 @@ function addMerged(parent, list, mat, cast = true, receive = true) {
 }
 
 // ---------- 1. БАЙТЕРЕК (105 м) ----------
-function buildBayterek(parent, M) {
+function buildBayterek(parent, M, ctx) {
   const P = L.bayterek;
   const g = new THREE.Group();
   g.position.set(P.x, 0, P.z);
@@ -111,6 +111,159 @@ function buildBayterek(parent, M) {
   const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.82, 10, 8), M.glow(0xffd27a, 6));
   beacon.position.set(0, 113.0, 0);
   g.add(beacon);
+
+  // ★ МОНУМЕНТАЛЬНЫЙ ВЕРТИКАЛЬНЫЙ ЛУЧ СВЕТА ИЗ ВЕРШИНЫ ЗОЛОТОГО ШАРА БАЙТЕРЕКА ★
+  const beamH = 1280;
+  const beamBaseY = 102.6;
+  const sharedU = {
+    uTime: ctx.U.uTime,
+    uNight: ctx.U.uNight,
+    uCyber: ctx.U.uCyber,
+    uSunset: ctx.U.uSunset,
+  };
+
+  const makeBeamMat = (isOuter) => new THREE.ShaderMaterial({
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    uniforms: sharedU,
+    vertexShader: `
+      varying float vH;
+      varying vec3 vN;
+      varying vec3 vW;
+      void main() {
+        vH = clamp(uv.y, 0.0, 1.0);
+        vN = normalize(normalMatrix * normal);
+        vec4 w = modelMatrix * vec4(position, 1.0);
+        vW = w.xyz;
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime, uNight, uCyber, uSunset;
+      varying float vH;
+      varying vec3 vN;
+      varying vec3 vW;
+      void main() {
+        vec3 V = normalize(cameraPosition - vW);
+        float fresnel = pow(clamp(abs(dot(V, normalize(vN))), 0.0, 1.0), ${isOuter ? "2.4" : "1.55"});
+        float verticalFade = pow(1.0 - vH, ${isOuter ? "1.65" : "1.15"});
+        float baseCrown = exp(-vH * 16.0) * 1.45;
+        float pulse = 0.86 + 0.14 * sin(vH * 30.0 - uTime * 3.4);
+        float cyberPulse = 0.78 + 0.22 * sin(vH * 46.0 - uTime * 5.2);
+
+        vec3 realDay = mix(vec3(1.0, 0.88, 0.56), vec3(1.0, 0.97, 0.85), exp(-vH * 6.0));
+        vec3 cyberCol = mix(vec3(1.0, 0.80, 0.30), vec3(0.10, 0.96, 1.0), smoothstep(0.03, 0.42, vH));
+        vec3 col = mix(realDay, cyberCol, uCyber);
+
+        float realAlpha = mix(${isOuter ? "0.24" : "0.50"}, ${isOuter ? "0.40" : "0.78"}, max(uSunset, uNight));
+        float cyberAlpha = ${isOuter ? "0.52" : "0.95"} * cyberPulse;
+        float strength = mix(realAlpha, cyberAlpha, uCyber) * pulse;
+        float alpha = fresnel * (verticalFade + baseCrown * 0.45) * strength;
+        gl_FragColor = vec4(col * alpha * ${isOuter ? "1.35" : "2.1"}, alpha);
+      }
+    `,
+  });
+
+  const beamCore = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.3, 4.4, beamH, 24, 24, true).translate(0, beamBaseY + beamH * 0.5, 0),
+    makeBeamMat(false)
+  );
+  beamCore.frustumCulled = false;
+  beamCore.renderOrder = 8;
+  g.add(beamCore);
+
+  const beamHalo = new THREE.Mesh(
+    new THREE.CylinderGeometry(24.0, 7.6, beamH, 24, 16, true).translate(0, beamBaseY + beamH * 0.5, 0),
+    makeBeamMat(true)
+  );
+  beamHalo.frustumCulled = false;
+  beamHalo.renderOrder = 7;
+  g.add(beamHalo);
+
+  // Светящаяся корона-ореол на макушке золотого шара (якорь луча)
+  const apexRingMat = new THREE.ShaderMaterial({
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    uniforms: sharedU,
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `
+      uniform float uCyber, uNight, uSunset;
+      varying vec2 vUv;
+      void main() {
+        float r = length(vUv - 0.5) * 2.0;
+        float glow = exp(-r * r * 5.5) * smoothstep(1.0, 0.2, r);
+        vec3 col = mix(vec3(1.0, 0.88, 0.54), vec3(0.42, 0.96, 1.0), uCyber * 0.65);
+        float amp = mix(0.65 + 0.35 * max(uSunset, uNight), 1.15, uCyber);
+        gl_FragColor = vec4(col * glow * amp * 1.6, glow * amp);
+      }
+    `,
+  });
+  const apexRing = new THREE.Mesh(new THREE.PlaneGeometry(34, 34).rotateX(-Math.PI / 2), apexRingMat);
+  apexRing.position.set(0, 103.4, 0);
+  apexRing.renderOrder = 8;
+  g.add(apexRing);
+
+  // Восходящие золотисто-циановые искры вокруг луча (GPU-анимация без CPU-нагрузки)
+  const moteN = 160;
+  const motePos = new Float32Array(moteN * 3);
+  const moteData = new Float32Array(moteN * 3); // [phase, speed, radius]
+  for (let i = 0; i < moteN; i++) {
+    const ang = (i / moteN) * TAU * 7.0;
+    const rad = 1.8 + ((i * 37) % 100) / 100 * 8.5;
+    motePos[i * 3] = Math.cos(ang);
+    motePos[i * 3 + 1] = (i / moteN);
+    motePos[i * 3 + 2] = Math.sin(ang);
+    moteData[i * 3] = (i * 0.6180339) % 1.0;
+    moteData[i * 3 + 1] = 0.045 + ((i * 19) % 40) * 0.0018;
+    moteData[i * 3 + 2] = rad;
+  }
+  const moteGeo = new THREE.BufferGeometry();
+  moteGeo.setAttribute("position", new THREE.BufferAttribute(motePos, 3));
+  moteGeo.setAttribute("aData", new THREE.BufferAttribute(moteData, 3));
+  const moteMat = new THREE.ShaderMaterial({
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    uniforms: sharedU,
+    vertexShader: `
+      attribute vec3 aData;
+      uniform float uTime, uCyber;
+      varying float vFade;
+      void main() {
+        float t = fract(aData.x + uTime * aData.y);
+        float y = 103.5 + t * 720.0;
+        float spin = uTime * 0.35 + aData.x * 18.0;
+        float rad = aData.z * (0.7 + t * 1.4);
+        vec3 p = vec3(cos(spin) * position.x - sin(spin) * position.z, 0.0, sin(spin) * position.x + cos(spin) * position.z);
+        p.xz *= rad;
+        p.y = y;
+        vFade = smoothstep(0.0, 0.08, t) * (1.0 - smoothstep(0.55, 1.0, t));
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_PointSize = clamp((380.0 / max(-mv.z, 1.0)) * (1.0 + uCyber * 0.45), 1.8, 9.0);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      uniform float uCyber, uNight, uSunset;
+      varying float vFade;
+      void main() {
+        float d = length(gl_PointCoord - 0.5) * 2.0;
+        if (d > 1.0) discard;
+        float g = exp(-d * d * 4.5) * vFade;
+        vec3 col = mix(vec3(1.0, 0.90, 0.55), vec3(0.32, 0.96, 1.0), uCyber * 0.72);
+        float amp = mix(0.55 + 0.35 * max(uSunset, uNight), 1.2, uCyber);
+        gl_FragColor = vec4(col * g * amp * 1.8, g * amp);
+      }
+    `,
+  });
+  const beamMotes = new THREE.Points(moteGeo, moteMat);
+  beamMotes.frustumCulled = false;
+  beamMotes.renderOrder = 9;
+  g.add(beamMotes);
 
   addMerged(g, marble, M.marble, true, true);
   addMerged(g, granite, M.graniteLight, true, true);
@@ -566,7 +719,7 @@ export function buildLandmarks(scene, M, ctx) {
   group.name = "landmarks-main";
   scene.add(group);
 
-  const bayterek = buildBayterek(group, M);
+  const bayterek = buildBayterek(group, M, ctx);
   const khan = buildKhanShatyr(group, M);
   const pyramid = buildPyramid(group, M);
   const nurAlem = buildNurAlem(group, M);

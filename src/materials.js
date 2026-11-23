@@ -1,8 +1,8 @@
 // ============================================================
 // ASTANA REAL v2 — materials.js
-// Фотореалистичные PBR-материалы с поддержкой CSM-теней,
-// зеркального архитектурного стекла (MeshPhysicalMaterial),
-// травертина/гранита/мрамора и мокрого асфальта при uCyber > 0.
+// Фотореалистичные PBR-материалы (реальные текстуры ./assets/pbr/),
+// CSM-тени, зеркальное стекло, кластерный оконный шейдер
+// небоскрёбов и мокрые лужи на асфальте при uCyber / uNight / uSunset.
 // ============================================================
 import * as THREE from "three";
 import { Textures } from "./textures.js";
@@ -15,9 +15,29 @@ export const REG = {
   basic: [],     // { m, rgb, k, day } — unlit-неон: цвет = day + night·k
 };
 
-/** Патч фасада: UV в метрах × масштаб инстанса + целочисленный сдвиг по окнам. */
-function facadePatch(cellW, cellH, tile) {
-  const src = `
+const texLoader = new THREE.TextureLoader();
+
+function loadPBR(prefix, tile = 4, { normalScale = 1.0 } = {}) {
+  const rep = 1 / tile;
+  const prep = (url, srgb) => {
+    const t = texLoader.load(url);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(rep, rep);
+    t.anisotropy = 8;
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    return t;
+  };
+  return {
+    map: prep(`./assets/pbr/${prefix}_col.jpg`, true),
+    normalMap: prep(`./assets/pbr/${prefix}_nor.jpg`, false),
+    roughnessMap: prep(`./assets/pbr/${prefix}_rough.jpg`, false),
+    normalScale: new THREE.Vector2(normalScale, normalScale),
+  };
+}
+
+/** Патч фасада: UV в метрах × масштаб инстанса + реалистичный кластерный оконный шейдер. */
+function facadePatch(cellW, cellH, tile, isGlass = true) {
+  const uvSrc = `
 #include <uv_vertex>
 #ifdef USE_INSTANCING
   vec2 sI = vec2(0.5 * (length(instanceMatrix[0].xyz) + length(instanceMatrix[2].xyz)), length(instanceMatrix[1].xyz));
@@ -41,34 +61,115 @@ function facadePatch(cellW, cellH, tile) {
   #endif
 #endif`;
   return (sh) => {
-    if (!sh.vertexShader.includes("#include <uv_vertex>")) return;
-    sh.vertexShader = sh.vertexShader.replace("#include <uv_vertex>", src);
+    sh.uniforms.uCyber = U.uCyber;
+    sh.uniforms.uNight = U.uNight;
+    if (sh.vertexShader.includes("#include <uv_vertex>")) {
+      sh.vertexShader = sh.vertexShader.replace("#include <uv_vertex>", uvSrc);
+    }
+    sh.vertexShader = sh.vertexShader
+      .replace("#include <common>", `#include <common>
+        varying vec2 vWinMeters;
+        varying float vBldSeed;
+        varying float vWallMask;`)
+      .replace("#include <worldpos_vertex>", `#include <worldpos_vertex>
+        #ifdef USE_INSTANCING
+          vec3 winOrigin = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+          vec3 winNrm = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * objectNormal);
+        #else
+          vec3 winOrigin = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+          vec3 winNrm = normalize(mat3(modelMatrix) * objectNormal);
+        #endif
+        vBldSeed = fract(sin(dot(winOrigin.xz, vec2(12.9898, 78.233))) * 43758.5453);
+        vWallMask = 1.0 - smoothstep(0.55, 0.85, abs(winNrm.y));
+        #ifdef USE_MAP
+          vWinMeters = vMapUv * ${tile.toFixed(2)};
+        #else
+          vWinMeters = vec2(worldPosition.x + worldPosition.z, worldPosition.y);
+        #endif`);
+
+    const bayW = isGlass ? 2.1 : 2.6;
+    const floorH = 3.4;
+    sh.fragmentShader = sh.fragmentShader
+      .replace("#include <common>", `#include <common>
+        uniform float uCyber;
+        uniform float uNight;
+        varying vec2 vWinMeters;
+        varying float vBldSeed;
+        varying float vWallMask;
+        float winHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`)
+      .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
+        vec2 mLocal = vec2(fract(vWinMeters.x / ${bayW.toFixed(2)}), fract(vWinMeters.y / ${floorH.toFixed(2)}));
+        float mullionX = step(0.08, mLocal.x) * step(mLocal.x, 0.92);
+        float spandrelY = step(${isGlass ? "0.24" : "0.32"}, mLocal.y) * step(mLocal.y, ${isGlass ? "0.93" : "0.88"});
+        float paneMask = mullionX * spandrelY * vWallMask;
+        ${isGlass
+          ? "roughnessFactor = mix(0.30, 0.055, paneMask);"
+          : "roughnessFactor = mix(roughnessFactor, 0.09, paneMask);"}`)
+      .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+        {
+          vec2 cell = vec2(floor(vWinMeters.x / ${bayW.toFixed(2)}), floor(vWinMeters.y / ${floorH.toFixed(2)}));
+          vec2 loc = vec2(fract(vWinMeters.x / ${bayW.toFixed(2)}), fract(vWinMeters.y / ${floorH.toFixed(2)}));
+          float pane = step(0.08, loc.x) * step(loc.x, 0.92) * step(${isGlass ? "0.24" : "0.32"}, loc.y) * step(loc.y, ${isGlass ? "0.93" : "0.88"}) * vWallMask;
+          float floorOn = step(0.32, winHash(vec2(cell.y, vBldSeed * 19.3)));
+          float suiteId = floor(vWinMeters.x / ${(bayW * 3.0).toFixed(2)});
+          float suiteH = winHash(vec2(suiteId + vBldSeed * 13.7, cell.y * 1.41));
+          float bayH = winHash(cell + vec2(vBldSeed * 7.1, vBldSeed * 3.9));
+          float occ = floorOn * step(0.42, suiteH * 0.65 + bayH * 0.35);
+          float blind = step(0.68, winHash(cell * 2.13)) * step(0.64, loc.y);
+          float ceilGrad = mix(0.48, 1.12, smoothstep(0.24, 0.92, loc.y)) * (1.0 - blind * 0.72);
+          float tempMix = winHash(vec2(suiteId * 1.7 + vBldSeed, cell.y));
+          vec3 warmCol = vec3(1.0, 0.74, 0.44);
+          vec3 coolCol = vec3(0.80, 0.91, 1.0);
+          vec3 winTone = mix(warmCol, coolCol, smoothstep(0.30, 0.78, tempMix));
+          float cyberPick = winHash(vec2(cell.y * 3.1 + suiteId, vBldSeed * 29.0));
+          vec3 cyberAcc = cyberPick > 0.90 ? vec3(0.05, 0.92, 1.0) : (cyberPick > 0.84 ? vec3(1.0, 0.24, 0.56) : winTone);
+          winTone = mix(winTone, cyberAcc, uCyber * 0.65);
+          float strength = (0.55 + 0.65 * bayH) * ceilGrad;
+          totalEmissiveRadiance = winTone * strength * uNight * (1.35 + uCyber * 0.45) * pane * occ;
+        }`);
   };
 }
 
-/** Патч мокрого асфальта: днём сухой матовый, при uCyber > 0 появляются влажные зеркальные лужи. */
+/** Патч мокрого асфальта: днём сухой матовый, при uCyber / uNight / uSunset — зеркальные лужи без серого шума. */
 function wetAsphaltPatch() {
   return (sh) => {
     sh.uniforms.uCyber = U.uCyber;
     sh.uniforms.uNight = U.uNight;
+    sh.uniforms.uSunset = U.uSunset;
+    sh.uniforms.uTime = U.uTime;
     sh.vertexShader = sh.vertexShader
       .replace("#include <common>", "#include <common>\nvarying vec3 vWetW;")
       .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvWetW = (modelMatrix * vec4(transformed, 1.0)).xyz;");
     sh.fragmentShader = sh.fragmentShader
       .replace("#include <common>", `#include <common>
-        uniform float uCyber; uniform float uNight; varying vec3 vWetW;
+        uniform float uCyber; uniform float uNight; uniform float uSunset; uniform float uTime; varying vec3 vWetW;
         float wetHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
         float wetNoise(vec2 p){
           vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
           return mix(mix(wetHash(i), wetHash(i + vec2(1.0, 0.0)), f.x),
                      mix(wetHash(i + vec2(0.0, 1.0)), wetHash(i + vec2(1.0, 1.0)), f.x), f.y);
         }`)
-      .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
-        float puddle = smoothstep(0.32, 0.72, wetNoise(vWetW.xz * 0.035) * 0.65 + wetNoise(vWetW.xz * 0.11) * 0.35);
-        float wetAmt = clamp(uCyber * 0.95 + uNight * 0.15, 0.0, 1.0);
-        roughnessFactor = mix(roughnessFactor, mix(0.28, 0.06, puddle), wetAmt);`)
       .replace("#include <color_fragment>", `#include <color_fragment>
-        diffuseColor.rgb *= mix(1.0, 0.48, uCyber);`);
+        float wetPuddle = smoothstep(0.44, 0.68, wetNoise(vWetW.xz * 0.030) * 0.68 + wetNoise(vWetW.xz * 0.088) * 0.32);
+        float wetAmt = clamp(uCyber * 0.98 + uNight * 0.32 + uSunset * 0.20, 0.0, 1.0);
+        diffuseColor.rgb *= mix(1.0, mix(0.48, 0.18, wetPuddle), wetAmt);`)
+      .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
+        roughnessFactor = mix(roughnessFactor, mix(0.30, 0.022, wetPuddle), wetAmt);`)
+      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+        normal = normalize(mix(normal, nonPerturbedNormal, wetPuddle * wetAmt * 0.94));`)
+      .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+        {
+          vec3 V = normalize(cameraPosition - vWetW);
+          float fresnel = pow(1.0 - clamp(V.y, 0.0, 1.0), 2.5);
+          float streak = 0.55 + 0.45 * sin(vWetW.x * 0.24 + vWetW.z * 0.19 + sin(vWetW.z * 0.05) * 3.0);
+          float neonBand = wetNoise(vWetW.xz * 0.014 + vec2(0.0, uTime * 0.015));
+          vec3 cCyan = vec3(0.0, 0.72, 0.98);
+          vec3 cMag  = vec3(0.96, 0.14, 0.56);
+          vec3 cWarm = vec3(1.0, 0.64, 0.26);
+          vec3 reflGlow = mix(mix(cCyan, cMag, smoothstep(0.35, 0.72, neonBand)), cWarm, 0.35 * (1.0 - uCyber));
+          float reflStr = wetPuddle * (0.28 + 0.72 * fresnel) * streak * (uCyber * 0.52 + uNight * 0.14 + uSunset * 0.08);
+          totalEmissiveRadiance += reflGlow * reflStr;
+        }`);
   };
 }
 
@@ -78,6 +179,12 @@ export function createMaterials({ csm, S }) {
     glass: [3, 3], glassBlue: [3, 3], glassGold: [3, 3], glassEmerald: [3, 3],
     stone: [6, 3], stoneRibbon: [6, 3], panel: [6, 3], res: [4, 3],
   };
+
+  function setup(m) {
+    if (csm) csm.setupMaterial(m);
+    m.receiveShadow = true;
+    return m;
+  }
 
   function finish(m, { patch = null, key = null } = {}) {
     if (csm) {
@@ -95,8 +202,9 @@ export function createMaterials({ csm, S }) {
   const phys = (params, o) => finish(new THREE.MeshPhysicalMaterial(params), o);
 
   const M = {};
+  M.setup = setup;
 
-  // ---------- Архитектурное стекло (MeshPhysicalMaterial: отражает реальное небо днём!) ----------
+  // ---------- Архитектурное стекло (MeshPhysicalMaterial: отражает реальный HDRI неба!) ----------
   for (const [name, maker] of Object.entries({
     glass: T.glass, glassBlue: T.glassBlue, glassGold: T.glassGold, glassEmerald: T.glassEmerald,
   })) {
@@ -105,11 +213,11 @@ export function createMaterials({ csm, S }) {
     const m = phys({
       map: t.map, normalMap: t.normalMap, roughnessMap: t.roughnessMap, metalnessMap: t.metalnessMap,
       emissiveMap: t.emissiveMap, emissive: new THREE.Color(0xffffff), emissiveIntensity: 0,
-      roughness: 0.95, metalness: 0.95,
-      clearcoat: 1.0, clearcoatRoughness: 0.06, reflectivity: 1.0,
-      envMapIntensity: 1.75,
-    }, { patch: facadePatch(cw, ch, t.tile), key: `facade-glass-${name}` });
-    REG.windows.push({ m, k: 1.75 });
+      roughness: 0.95, metalness: 0.92,
+      clearcoat: 1.0, clearcoatRoughness: 0.05, reflectivity: 1.0,
+      envMapIntensity: 1.65,
+    }, { patch: facadePatch(cw, ch, t.tile, true), key: `facade-glass-${name}-v2` });
+    REG.windows.push({ m, k: 1.65 });
     M[name] = m;
   }
 
@@ -122,13 +230,13 @@ export function createMaterials({ csm, S }) {
     const m = std({
       map: t.map, normalMap: t.normalMap, roughnessMap: t.roughnessMap, metalnessMap: t.metalnessMap,
       emissiveMap: t.emissiveMap, emissive: new THREE.Color(0xffffff), emissiveIntensity: 0,
-      roughness: 1, metalness: 1, envMapIntensity: 1.15,
-    }, { patch: facadePatch(cw, ch, t.tile), key: "facade-stone" });
-    REG.windows.push({ m, k: 1.9 });
+      roughness: 1, metalness: 1, envMapIntensity: 1.05,
+    }, { patch: facadePatch(cw, ch, t.tile, false), key: `facade-stone-${name}-v2` });
+    REG.windows.push({ m, k: 1.75 });
     M[name] = m;
   }
 
-  // ---------- Архитектурные материалы Астаны ----------
+  // ---------- Архитектурные материалы Астаны (реальные PBR-карты из ./assets/pbr/) ----------
   const plate = (L, tile, extra = {}) => {
     const rep = 1 / tile;
     return std({
@@ -141,45 +249,67 @@ export function createMaterials({ csm, S }) {
   };
   {
     const rf = T.roof(S);
-    M.roof = std({ map: rf.map, normalMap: rf.normalMap, roughness: 0.90, metalness: 0.04, envMapIntensity: 0.55 });
+    M.roof = std({ map: rf.map, normalMap: rf.normalMap, roughness: 0.90, metalness: 0.04, envMapIntensity: 0.50 });
 
     const c = T.concrete(S, { base: "#bcb8b0", tile: 4, rough: 0.80 });
-    M.concrete = std({ map: c.map, normalMap: c.normalMap, roughness: 0.80, metalness: 0.0, envMapIntensity: 0.6 });
+    M.concrete = std({ map: c.map, normalMap: c.normalMap, roughness: 0.82, metalness: 0.0, envMapIntensity: 0.55 });
 
-    const c2 = T.concrete(S, { base: "#8e8b85", tile: 3, rough: 0.84, seed: 6 });
-    M.concreteDark = std({ map: c2.map, normalMap: c2.normalMap, roughness: 0.84, metalness: 0.0, envMapIntensity: 0.5 });
+    const rockPBR = loadPBR("rock", 6, { normalScale: 1.05 });
+    M.rock = std({ ...rockPBR, roughness: 0.94, metalness: 0.02, envMapIntensity: 0.55 });
+    M.concreteDark = std({ ...rockPBR, color: 0x9c9890, roughness: 0.88, metalness: 0.02, envMapIntensity: 0.48 });
 
-    // Травертин (Акорда, Дом Министерств, Арка, КМГ)
-    const tr = T.travertine(S);
-    M.travertine = std({ map: tr.map, normalMap: tr.normalMap, roughnessMap: tr.roughnessMap, roughness: 0.92, metalness: 0.02, envMapIntensity: 0.75 });
+    // Травертин (Акорда, Дом Министерств, Арка, КМГ, Beijing Palace)
+    const travPBR = loadPBR("travertine", 5, { normalScale: 0.9 });
+    M.travertine = std({ ...travPBR, roughness: 0.88, metalness: 0.02, envMapIntensity: 0.82 });
 
-    // Полированный гранит (стилобат QazaqGaz, бульвар Нуржол, набережная Есиль)
-    const gr = T.granite(S, { base: "#5e5c5a", tile: 6, rough: 0.28, seed: 601 });
-    M.granite = std({ map: gr.map, normalMap: gr.normalMap, roughnessMap: gr.roughnessMap, roughness: 0.85, metalness: 0.08, envMapIntensity: 1.15 });
+    // Полированный чёрный гранит Nero (стилобат QazaqGaz, набережная Есиль, бульвар)
+    const neroPBR = loadPBR("nero", 5, { normalScale: 0.85 });
+    M.nero = phys({ ...neroPBR, roughness: 0.50, metalness: 0.08, clearcoat: 0.55, clearcoatRoughness: 0.14, envMapIntensity: 1.28 });
+    M.granite = std({ ...neroPBR, color: 0xb8b5b2, roughness: 0.62, metalness: 0.07, envMapIntensity: 1.15 });
 
-    const grLight = T.granite(S, { base: "#c8c2b8", tile: 6, rough: 0.36, seed: 607 });
-    M.graniteLight = std({ map: grLight.map, normalMap: grLight.normalMap, roughnessMap: grLight.roughnessMap, roughness: 0.88, metalness: 0.05, envMapIntensity: 0.95 });
+    // Светлый гранит (бульвар Нуржол, тротуары, MEGA 1F)
+    const granPBR = loadPBR("granite", 4.5, { normalScale: 0.85 });
+    M.graniteLight = std({ ...granPBR, roughness: 0.72, metalness: 0.04, envMapIntensity: 0.95 });
 
-    // Асфальт с мокрыми лужами в Cyberpunk-режиме!
-    const as = T.asphalt(S);
+    // Асфальт с реальными PBR-картами + мокрые зеркальные лужи
+    const aspPBR = loadPBR("asphalt", 7, { normalScale: 1.15 });
     M.asphalt = std({
-      map: as.map, normalMap: as.normalMap, roughnessMap: as.roughnessMap,
-      roughness: 0.95, metalness: 0.04, envMapIntensity: 1.4,
+      ...aspPBR,
+      roughness: 1.0, metalness: 0.04, envMapIntensity: 1.35,
       polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
-    }, { patch: wetAsphaltPatch(), key: "wet-asphalt" });
+    }, { patch: wetAsphaltPatch(), key: "wet-asphalt-v2" });
 
-    // Газон и городская земля
-    const gs = T.grass(S);
-    M.grass = std({
-      map: gs.map, normalMap: gs.normalMap, roughness: 0.94, metalness: 0.0, envMapIntensity: 0.35,
-      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
-    });
-
-    const ug = T.urbanGround(S);
+    // Брусчатка / городская подложка кварталов
+    const paverPBR = loadPBR("paver", 4.5, { normalScale: 0.95 });
+    M.paver = std({ ...paverPBR, roughness: 0.92, metalness: 0.02, envMapIntensity: 0.55 });
     M.groundUrban = std({
-      map: ug.map, normalMap: ug.normalMap, roughness: 0.88, metalness: 0.02, envMapIntensity: 0.45,
+      ...paverPBR,
+      color: 0xbcb8ae, roughness: 0.90, metalness: 0.02, envMapIntensity: 0.45,
       polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2,
     });
+
+    // Газон
+    const gs = T.grass(S);
+    M.grass = std({
+      map: gs.map, normalMap: gs.normalMap, roughness: 0.94, metalness: 0.0, envMapIntensity: 0.32,
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+    });
+
+    // Мрамор (лобби, стилобаты, Байтерек, MEGA 2F, Beijing Lobby)
+    const marblePBR = loadPBR("marble", 4, { normalScale: 0.55 });
+    M.marble = phys({
+      ...marblePBR,
+      roughness: 0.34, metalness: 0.04, clearcoat: 0.72, clearcoatRoughness: 0.10, envMapIntensity: 1.25,
+    });
+
+    // Дерево / орех (интерьеры, скамейки, перголы, кафе)
+    const walnutPBR = loadPBR("walnut", 3, { normalScale: 0.85 });
+    M.walnut = std({ ...walnutPBR, roughness: 0.58, metalness: 0.02, envMapIntensity: 0.90 });
+    M.wood = M.walnut;
+
+    // Кора
+    const barkPBR = loadPBR("bark", 2, { normalScale: 1.1 });
+    M.bark = std({ ...barkPBR, roughness: 0.96, metalness: 0.0, envMapIntensity: 0.35 });
 
     M.steel = plate(T.steel(S), 6, { envMapIntensity: 1.25 });
     M.brass = plate(T.brass(S), 4.8, { envMapIntensity: 1.45 });
@@ -190,7 +320,7 @@ export function createMaterials({ csm, S }) {
     const g = T.gold(S);
     M.gold = phys({
       map: g.map, normalMap: g.normalMap,
-      roughness: 0.16, metalness: 0.96, clearcoat: 0.8, clearcoatRoughness: 0.08,
+      roughness: 0.15, metalness: 0.96, clearcoat: 0.85, clearcoatRoughness: 0.07,
       envMapIntensity: 1.85,
       emissive: new THREE.Color(0xffb84d), emissiveIntensity: 0,
     });
@@ -243,10 +373,8 @@ export function createMaterials({ csm, S }) {
   M.chrome = phys({ color: 0xe6ecf2, roughness: 0.12, metalness: 0.96, clearcoat: 0.6, envMapIntensity: 1.8 });
   M.glassDark = phys({ color: 0x162838, roughness: 0.08, metalness: 0.38, clearcoat: 1.0, clearcoatRoughness: 0.05, reflectivity: 1.0, envMapIntensity: 1.85 });
   M.glassClear = phys({ color: 0x5aa4c8, roughness: 0.06, metalness: 0.22, clearcoat: 1.0, transparent: true, opacity: 0.46, envMapIntensity: 1.75 });
-  M.marble = std({ color: 0xf2eee6, roughness: 0.24, metalness: 0.02, envMapIntensity: 1.05 });
   M.turquoise = phys({ color: 0x2095b0, roughness: 0.22, metalness: 0.45, clearcoat: 0.7, envMapIntensity: 1.35 });
   M.blueDome = phys({ color: 0x2b8cd4, roughness: 0.22, metalness: 0.42, clearcoat: 0.8, envMapIntensity: 1.45 });
-  M.wood = std({ color: 0x7a5434, roughness: 0.68, metalness: 0.02 });
   M.fabricShade = std({ color: 0x2a2622, roughness: 0.9, metalness: 0, side: THREE.DoubleSide });
   M.blackRubber = std({ color: 0x141414, roughness: 0.85, metalness: 0 });
 

@@ -102,6 +102,20 @@ export const ROADS = [
   { x0: 680,  z0: 0,     x1: 880,  z1: 0,     width: 28, lanes: 3, type: 'bridge', style: 'cable' },
   { x0: 680,  z0: -260,  x1: 880,  z1: -260,  width: 16, lanes: 0, type: 'bridge', style: 'atyrau' },
   { x0: 680,  z0: +280,  x1: 880,  z1: +280,  width: 24, lanes: 2, type: 'bridge', style: 'arch' },
+  // Наружная объездная магистраль (КАД) + вылетные трассы до горизонта (4200 м)
+  { x0: -1380, z0: -1240, x1: 680,   z1: -1240, width: 28, lanes: 3, type: 'road', outer: true },
+  { x0: 680,   z0: -1240, x1: 880,   z1: -1240, width: 28, lanes: 3, type: 'bridge', style: 'arch', outer: true },
+  { x0: 880,   z0: -1240, x1: 1720,  z1: -1240, width: 28, lanes: 3, type: 'road', outer: true },
+  { x0: -1380, z0: +1460, x1: 680,   z1: +1460, width: 28, lanes: 3, type: 'road', outer: true },
+  { x0: 680,   z0: +1460, x1: 880,   z1: +1460, width: 28, lanes: 3, type: 'bridge', style: 'arch', outer: true },
+  { x0: 880,   z0: +1460, x1: 1720,  z1: +1460, width: 28, lanes: 3, type: 'road', outer: true },
+  { x0: -1380, z0: -1240, x1: -1380, z1: +1460, width: 28, lanes: 3, type: 'road', outer: true },
+  { x0: 1720,  z0: -1240, x1: 1720,  z1: +1460, width: 28, lanes: 3, type: 'road', outer: true },
+  // Вылетные трассы (Аэропорт / Караганда / Кокшетау / Коргалжын)
+  { x0: +90,   z0: +1080, x1: +90,   z1: +3900, width: 26, lanes: 3, type: 'road', outer: true },
+  { x0: -760,  z0: -860,  x1: -760,  z1: -3800, width: 26, lanes: 3, type: 'road', outer: true },
+  { x0: -940,  z0: 0,     x1: -3900, z1: 0,     width: 26, lanes: 3, type: 'road', outer: true },
+  { x0: 1480,  z0: +280,  x1: +3900, z1: +280,  width: 24, lanes: 2, type: 'road', outer: true },
 ];
 
 // ── зоны, в которых запрещена генерация зданий ──

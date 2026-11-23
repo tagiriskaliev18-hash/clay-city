@@ -10,6 +10,7 @@
 import * as THREE from "three";
 import { LANDMARKS } from "./config.js";
 import { GB, merge } from "./geom.js";
+import { loadModelParts, instantiateModelGroup } from "./models.js";
 
 function addMerged(parent, list, mat, cast = false, receive = true) {
   if (!list.length) return null;
@@ -224,10 +225,127 @@ function makeShelfGoodsTex() {
   return t;
 }
 
-export function buildInteriors(scene, M, _ctx) {
+/** Подсвеченная текстура интерьерной витрины бутика (MEGA Silk Way). */
+function makeShopDisplayTex(bgHex, accentHex) {
+  const c = document.createElement("canvas");
+  c.width = 512; c.height = 192;
+  const g = c.getContext("2d");
+  const bg = g.createLinearGradient(0, 0, 0, 192);
+  bg.addColorStop(0, "#1c2028");
+  bg.addColorStop(0.55, bgHex || "#242934");
+  bg.addColorStop(1, "#12151b");
+  g.fillStyle = bg;
+  g.fillRect(0, 0, 512, 192);
+
+  // Тёплые конусы акцентных софитов на задней стене бутика
+  for (let x = 56; x <= 456; x += 80) {
+    const spot = g.createRadialGradient(x, 22, 4, x, 92, 92);
+    spot.addColorStop(0, "rgba(255, 238, 205, 0.48)");
+    spot.addColorStop(0.55, "rgba(255, 214, 155, 0.14)");
+    spot.addColorStop(1, "rgba(0, 0, 0, 0)");
+    g.fillStyle = spot;
+    g.fillRect(x - 90, 0, 180, 192);
+  }
+  // Тёплая горизонтальная полка и подиум
+  g.fillStyle = "#2b2f38";
+  g.fillRect(0, 154, 512, 38);
+  g.fillStyle = accentHex || "#f2c17d";
+  g.fillRect(24, 152, 464, 3);
+  // Силуэты витринных стеллажей и подиумов с товаром
+  for (let i = 0; i < 6; i++) {
+    const px = 42 + i * 78;
+    g.fillStyle = "rgba(235, 228, 216, 0.22)";
+    g.fillRect(px, 44, 48, 96);
+    g.fillStyle = "rgba(255, 240, 214, 0.72)";
+    g.fillRect(px + 6, 72, 36, 3);
+    g.fillRect(px + 6, 108, 36, 3);
+    g.fillStyle = "#3a404c";
+    g.fillRect(px + 10, 126, 28, 28);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+export async function buildInteriors(scene, M, _ctx) {
   const group = new THREE.Group();
   group.name = "walkable-interiors";
   scene.add(group);
+
+  const [
+    escalatorModel,
+    speedgateModel,
+    officerModel,
+    plantModel,
+    sofaModel,
+    armchairModel,
+    tableModel,
+  ] = await Promise.all([
+    loadModelParts("./assets/models/escalator.glb", { groundY: false }),
+    loadModelParts("./assets/models/speedgate.glb", { groundY: true }),
+    loadModelParts("./assets/models/officer.glb", { groundY: false, scale: 1.20 }),
+    loadModelParts("./assets/models/potted_plant_04.glb", { groundY: true }),
+    loadModelParts("./assets/models/sofa_03.glb", { groundY: true }),
+    loadModelParts("./assets/models/armchair_01.glb", { groundY: true }),
+    loadModelParts("./assets/models/coffeetable_01.glb", { groundY: true }),
+  ]);
+  // В исходном escalator.glb ступени (EscTread) развёрнуты по Z относительно балюстрад — выравниваем по оси подъёма
+  for (const part of escalatorModel.parts) {
+    if (part.name === "EscTread") {
+      part.geometry.rotateY(Math.PI);
+      part.geometry.computeBoundingBox();
+      part.geometry.computeBoundingSphere();
+    }
+  }
+
+  const prepInteriorMat = (name, mat) => {
+    const m = mat.clone();
+    if (name === "EscGlass") {
+      m.transparent = true;
+      m.opacity = 0.44;
+      m.roughness = 0.08;
+    } else if (/plant/i.test(name)) {
+      m.transparent = false;
+      m.alphaTest = 0.25;
+      m.side = THREE.DoubleSide;
+      m.roughness = Math.max(0.55, m.roughness ?? 0.72);
+    }
+    M.setup(m);
+    return m;
+  };
+
+  const trouserGeo = new THREE.CylinderGeometry(0.10, 0.082, 0.64, 10);
+  const shoeGeo = new THREE.BoxGeometry(0.14, 0.08, 0.26);
+  const trouserMat = M.std({ color: 0x182132, roughness: 0.78, metalness: 0.04 });
+  const shoeMat = M.std({ color: 0x111317, roughness: 0.42, metalness: 0.08 });
+  const makeOfficer = (x, y, z, yaw = 0) => {
+    const root = new THREE.Group();
+    const upper = instantiateModelGroup(officerModel, prepInteriorMat);
+    root.add(upper);
+    for (const sx of [-0.105, 0.105]) {
+      const leg = new THREE.Mesh(trouserGeo, trouserMat);
+      leg.position.set(sx, 0.38, 0);
+      leg.castShadow = true;
+      leg.receiveShadow = true;
+      root.add(leg);
+      const shoe = new THREE.Mesh(shoeGeo, shoeMat);
+      shoe.position.set(sx, 0.04, 0.04);
+      shoe.castShadow = true;
+      root.add(shoe);
+    }
+    root.position.set(x, y, z);
+    root.rotation.y = yaw;
+    return root;
+  };
+
+  const placeModel = (modelData, x, y, z, yaw = 0, scale = 1) => {
+    const inst = instantiateModelGroup(modelData, prepInteriorMat);
+    inst.position.set(x, y, z);
+    inst.rotation.y = yaw;
+    if (scale !== 1) inst.scale.setScalar(scale);
+    return inst;
+  };
 
   const colliders = [];
   const entrances = [];
@@ -236,14 +354,13 @@ export function buildInteriors(scene, M, _ctx) {
     colliders.push({ x, y, z, w, h, d, yaw });
   };
 
-  // Общие материалы интерьеров
-  const whiteWallMat = M.std({ color: 0xf4f2ec, roughness: 0.55, metalness: 0.02 });
-  const beigeMarbleMat = M.std({ color: 0xded3be, roughness: 0.28, metalness: 0.04 });
-  const darkWoodMat = M.std({ color: 0x3b2518, roughness: 0.42, metalness: 0.04 });
-  const warmWoodMat = M.std({ color: 0x8a5c36, roughness: 0.55, metalness: 0.02 });
-  const sofaMat = M.std({ color: 0x2b2f38, roughness: 0.72, metalness: 0.05 });
-  const plantMat = M.std({ color: 0x2e6b34, roughness: 0.75 });
-  const ledCeilMat = M.std({ color: 0xffffff, emissive: new THREE.Color(0xfff6e2), emissiveIntensity: 1.35, roughness: 0.2 });
+  // Общие материалы интерьеров (реальные PBR-текстуры M.travertine, M.marble, M.walnut)
+  const whiteWallMat = M.travertine;
+  const beigeMarbleMat = M.marble;
+  const darkWoodMat = M.walnut;
+  const warmWoodMat = M.walnut;
+  const ledCeilMat = M.std({ color: 0xffffff, emissive: new THREE.Color(0xfff4de), emissiveIntensity: 1.45, roughness: 0.18 });
+  const ledAccentMat = M.std({ color: 0xffe4b8, emissive: new THREE.Color(0xffc978), emissiveIntensity: 1.25, roughness: 0.2 });
   const ventMat = M.std({ map: makeVentTex(), roughness: 0.4, metalness: 0.5 });
 
   // ============================================================
@@ -271,9 +388,9 @@ export function buildInteriors(scene, M, _ctx) {
     qg.add(vestFloor);
 
     // Потолок (y = 4.65) + белые стены внутреннего холла + бежевые мраморные колонны
-    const whiteGeos = [], beigeGeos = [], darkWoodGeos = [], warmWoodGeos = [], chromeGeos = [], glassGeos = [], sofaGeos = [], plantGeos = [], ledGeos = [], ventGeos = [];
+    const whiteGeos = [], beigeGeos = [], darkWoodGeos = [], warmWoodGeos = [], chromeGeos = [], glassGeos = [], ledGeos = [], ventGeos = [];
     {
-      const BW = new GB(), BB = new GB(), BD = new GB(), BWW = new GB(), BC = new GB(), BG = new GB(), BS = new GB(), BL = new GB(), BV = new GB();
+      const BW = new GB(), BB = new GB(), BD = new GB(), BWW = new GB(), BC = new GB(), BG = new GB(), BL = new GB(), BV = new GB();
 
       // Потолок вестибюля
       BW.box(0, 4.68, 0, 40.5, 0.18, 33.5, 0);
@@ -309,15 +426,15 @@ export function buildInteriors(scene, M, _ctx) {
         BD.box(+8.8, sy, -9.86, 8.4, 0.12, 0.14, 0);
       }
 
-      // ★ Ресепшен-стойка QazaqGaz (по центру z = -3.8) ★
+      // ★ Мраморная ресепшен-стойка QazaqGaz + тёплая LED-подсветка цоколя (по центру z = -3.8) ★
       BB.box(-1.5, 1.12, -3.8, 6.8, 1.15, 1.2, 0);
       BD.box(-1.5, 1.72, -3.8, 7.1, 0.10, 1.35, 0);
       BWW.box(-1.5, 1.12, -3.15, 5.2, 0.85, 0.12, 0);
+      BL.box(-1.5, 0.62, -3.16, 6.4, 0.06, 0.08, 0);
 
-      // ★ Стеклянные турникеты безопасности (x = -7.2 .. -1.2, z = -7.2) ★
+      // ★ Стеклянные створки турникетов (сами тумбы из speedgate.glb!) ★
       for (let tx = -7.2; tx <= -1.2; tx += 1.5) {
-        BC.box(tx, 1.05, -7.2, 0.22, 1.0, 1.5, 0);
-        if (tx < -1.3) BG.box(tx + 0.75, 1.15, -7.2, 1.1, 0.85, 0.06, 0);
+        if (tx < -1.3) BG.box(tx + 0.75, 1.02, -7.2, 1.1, 0.82, 0.04, 0);
       }
 
       // ★ Лифтовые двери на восточной стене (+X, x = +19.6) ★
@@ -326,15 +443,9 @@ export function buildInteriors(scene, M, _ctx) {
         BD.box(19.38, 3.65, ez, 0.18, 0.35, 1.2, 0);
       }
 
-      // ★ Лобби-диваны и кофейный столик слева (x = -14.5, z = +5..+10) ★
-      BS.box(-15.5, 0.82, +7.5, 1.1, 0.56, 4.8, 0);
-      BS.box(-15.9, 1.22, +7.5, 0.32, 0.65, 4.8, 0);
-      BS.box(-12.5, 0.82, +10.2, 3.6, 0.56, 1.1, 0);
-      BS.box(-12.5, 1.22, +10.6, 3.6, 0.65, 0.32, 0);
-      BD.box(-12.8, 0.80, +7.2, 1.4, 0.48, 2.2, 0);
-
-      // ★ Встроенные LED-светильники и квадратные HVAC-решётки на потолке ★
+      // ★ Линейные и точечные LED-светильники + квадратные HVAC-решётки на потолке ★
       for (let lx = -14; lx <= 14; lx += 7) {
+        BL.box(lx, 4.58, -1.5, 0.18, 0.06, 16.0, 0);
         for (let lz = -6; lz <= 12; lz += 6) {
           BL.box(lx, 4.58, lz, 0.55, 0.06, 0.55, 0);
           BV.box(lx + 3.0, 4.58, lz + 1.5, 0.85, 0.05, 0.85, 0);
@@ -347,35 +458,39 @@ export function buildInteriors(scene, M, _ctx) {
       warmWoodGeos.push(BWW.build());
       chromeGeos.push(BC.build());
       glassGeos.push(BG.build());
-      sofaGeos.push(BS.build());
       ledGeos.push(BL.build());
       ventGeos.push(BV.build());
     }
 
-    // Фикус-растения в горшках
+    // ★ Лаунж-зона из реальных GLB (sofa_03, armchair_01, coffeetable_01, y = 0.56) ★
+    qg.add(placeModel(sofaModel, -14.8, 0.56, +7.5, Math.PI / 2));
+    qg.add(placeModel(armchairModel, -12.6, 0.56, +10.2, Math.PI));
+    qg.add(placeModel(armchairModel, -12.6, 0.56, +4.8, 0));
+    qg.add(placeModel(tableModel, -12.6, 0.56, +7.5, Math.PI / 2));
+
+    // Живые декоративные растения в кашпо (potted_plant_04.glb)
     for (const [px, pz] of [[-16.8, -8.5], [+16.8, +14.0], [-6.2, +14.0], [+6.2, +14.0]]) {
-      whiteGeos.push(new THREE.CylinderGeometry(0.45, 0.32, 0.72, 10).translate(px, 0.90, pz));
-      darkWoodGeos.push(new THREE.CylinderGeometry(0.06, 0.09, 1.4, 6).translate(px, 1.65, pz));
-      plantGeos.push(new THREE.DodecahedronGeometry(0.68, 1).translate(px, 2.35, pz));
-      plantGeos.push(new THREE.DodecahedronGeometry(0.48, 1).translate(px + 0.25, 2.75, pz - 0.15));
+      qg.add(placeModel(plantModel, px, 0.56, pz, px * 0.7, 4.8));
     }
 
-    // ★ Зелёно-голубой фандомат Sparklo & QAZAQGAZ («Таза Қазақстан») ★
-    const sparkMat = M.std({ map: makeSparkloTex(), emissiveMap: makeSparkloTex(), emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.35, roughness: 0.3 });
-    const sparkCabinet = new THREE.Mesh(new THREE.BoxGeometry(1.25, 2.25, 0.90), M.std({ color: 0x1680b8, roughness: 0.35 }));
-    sparkCabinet.position.set(+6.4, 1.68, -9.2);
+    // ★ Сдержанный киоск Sparklo & QAZAQGAZ (корпус из тёмного матового металла) ★
+    const sparkMat = M.std({ map: makeSparkloTex(), emissiveMap: makeSparkloTex(), emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.22, roughness: 0.34 });
+    const sparkCabinet = new THREE.Mesh(new THREE.BoxGeometry(0.98, 1.92, 0.64), M.darkMetal);
+    sparkCabinet.position.set(+6.4, 1.52, -9.2);
+    sparkCabinet.castShadow = true;
     qg.add(sparkCabinet);
-    const sparkFront = new THREE.Mesh(new THREE.PlaneGeometry(1.22, 2.22), sparkMat);
-    sparkFront.position.set(+6.4, 1.68, -8.74);
+    const sparkFront = new THREE.Mesh(new THREE.PlaneGeometry(0.84, 1.56), sparkMat);
+    sparkFront.position.set(+6.4, 1.54, -8.87);
     qg.add(sparkFront);
 
-    // ★ Маджентовый банкомат ForteBank ★
-    const forteMat = M.std({ map: makeForteAtmTex(), emissiveMap: makeForteAtmTex(), emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.35, roughness: 0.3 });
-    const forteCabinet = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.80, 0.85), M.std({ color: 0xd41e6b, roughness: 0.35 }));
-    forteCabinet.position.set(+8.0, 1.45, -9.2);
+    // ★ Банкомат ForteBank (корпус из шлифованной стали) ★
+    const forteMat = M.std({ map: makeForteAtmTex(), emissiveMap: makeForteAtmTex(), emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.22, roughness: 0.34 });
+    const forteCabinet = new THREE.Mesh(new THREE.BoxGeometry(0.84, 1.72, 0.62), M.steel);
+    forteCabinet.position.set(+8.0, 1.42, -9.2);
+    forteCabinet.castShadow = true;
     qg.add(forteCabinet);
-    const forteFront = new THREE.Mesh(new THREE.PlaneGeometry(0.92, 1.76), forteMat);
-    forteFront.position.set(+8.0, 1.45, -8.76);
+    const forteFront = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 1.38), forteMat);
+    forteFront.position.set(+8.0, 1.44, -8.88);
     qg.add(forteFront);
 
     // ★ Подсвеченный настенный логотип QAZAQGAZ за ресепшеном ★
@@ -385,10 +500,24 @@ export function buildInteriors(scene, M, _ctx) {
     logoMesh.position.set(-1.5, 2.95, -9.96);
     qg.add(logoMesh);
 
-    // Точечный тёплый интерьерный свет
-    const qgLight = new THREE.PointLight(0xfff4df, 18, 36, 1.4);
-    qgLight.position.set(0, 4.1, 2.0);
-    qg.add(qgLight);
+    // Реальные speedgate.glb турникеты + дежурный офицер безопасности в полный рост (y = 0.56)
+    for (let tx = -7.2; tx <= -1.2; tx += 1.5) {
+      const sg = instantiateModelGroup(speedgateModel, prepInteriorMat);
+      sg.position.set(tx, 0.56, -7.2);
+      qg.add(sg);
+    }
+    qg.add(makeOfficer(3.4, 0.56, -4.4, 0));
+
+    // Точечные тёплый интерьерный свет + акцентные пулы у ресепшена и диванов
+    for (const [lx, ly, lz, inten, dist] of [
+      [0, 4.1, 2.0, 18, 36],
+      [-1.5, 3.8, -4.5, 12, 18],
+      [-12.8, 3.8, 7.5, 10, 16],
+    ]) {
+      const ql = new THREE.PointLight(0xffedd0, inten, dist, 1.4);
+      ql.position.set(lx, ly, lz);
+      qg.add(ql);
+    }
 
     addMerged(qg, whiteGeos, whiteWallMat);
     addMerged(qg, beigeGeos, beigeMarbleMat);
@@ -396,8 +525,6 @@ export function buildInteriors(scene, M, _ctx) {
     addMerged(qg, warmWoodGeos, warmWoodMat);
     addMerged(qg, chromeGeos, M.chrome);
     addMerged(qg, glassGeos, M.glassClear, false, false);
-    addMerged(qg, sofaGeos, sofaMat);
-    addMerged(qg, plantGeos, plantMat);
     addMerged(qg, ledGeos, ledCeilMat, false, false);
     addMerged(qg, ventGeos, ventMat, false, false);
 
@@ -418,7 +545,7 @@ export function buildInteriors(scene, M, _ctx) {
     // Внутренние элементы
     pushBox(qx - 1.5, 0.5, qz - 3.8, 7.0, 2.0, 1.4); // ресепшен
     pushBox(qx + 7.2, 0.5, qz - 9.2, 3.2, 2.5, 1.1); // Sparklo + ForteBank
-    pushBox(qx - 15.5, 0.5, qz + 7.5, 1.3, 1.6, 4.8); // диван
+    pushBox(qx - 14.8, 0.5, qz + 7.5, 1.0, 1.2, 2.8); // диван sofa_03.glb
 
     entrances.push({
       id: "qazaqgaz",
@@ -443,8 +570,8 @@ export function buildInteriors(scene, M, _ctx) {
     mg.name = "interior-megasilkway";
     group.add(mg);
 
-    const floor1Geos = [], floor2Geos = [], wallGeos = [], railGlassGeos = [], chromeGeos = [], woodGeos = [], darkGeos = [], waterGeos = [], plantGeos = [];
-    const BF1 = new GB(), BF2 = new GB(), BW = new GB(), BRG = new GB(), BC = new GB(), BWood = new GB(), BD = new GB();
+    const floor1Geos = [], floor2Geos = [], wallGeos = [], railGlassGeos = [], chromeGeos = [], woodGeos = [], darkGeos = [], waterGeos = [], megaLedGeos = [], megaAwningGeos = [];
+    const BF1 = new GB(), BF2 = new GB(), BW = new GB(), BRG = new GB(), BC = new GB(), BWood = new GB(), BD = new GB(), BML = new GB(), BMA = new GB();
 
     // 1F тераццо-пол (236 × 101 м, y = 0.30)
     BF1.box(0, 0.15, 0, 236, 0.30, 101, 0);
@@ -455,22 +582,25 @@ export function buildInteriors(scene, M, _ctx) {
     BF2.box(0, 6.75, -33.5, 112, 0.50, 33, 0); // Северная галерея 2F (z = -50..-17)
     BF2.box(0, 6.75, +33.5, 112, 0.50, 33, 0); // Южная галерея 2F (z = +17..+50)
 
-    // Два широких эскалатора с 1F (y=0.3) на 2F (y=7.0):
-    //   Северный (z = -12.5..-7.5): поднимается с x=-34 (1F) на x=-56 (2F запад)
-    //   Южный   (z = +7.5..+12.5): поднимается с x=+34 (1F) на x=+56 (2F восток)
-    const escSteps = 22;
-    for (let i = 0; i < escSteps; i++) {
-      const t = (i + 0.5) / escSteps;
-      const sx1 = -34 - t * 22, sy = 0.30 + t * 6.70;
-      BD.box(sx1, sy - 0.15, -10.0, 1.25, 0.35, 4.6, 0);
-      const sx2 = +34 + t * 22;
-      BD.box(sx2, sy - 0.15, +10.0, 1.25, 0.35, 4.6, 0);
+    // Два сдвоенных реальных эскалатора escalator.glb с 1F (y=0.3) на 2F (y=7.0):
+    //   Северный (z = -11.2, -8.8): поднимается с x=-34 (1F) на x=-56 (2F запад)
+    //   Южный   (z = +8.8, +11.2): поднимается с x=+34 (1F) на x=+56 (2F восток)
+    const escScaleZ = 22.0 / 11.42;
+    for (const ez of [-11.2, -8.8]) {
+      const escN = instantiateModelGroup(escalatorModel, prepInteriorMat);
+      escN.position.set(-45, 0.30, ez);
+      escN.rotation.y = -Math.PI / 2;
+      escN.scale.set(1.18, 1.0, escScaleZ);
+      mg.add(escN);
     }
-    // Прозрачные балюстрады и хромированные поручни эскалаторов
-    BRG.box(-45, 4.2, -12.3, 24, 1.2, 0.08, 0.295);
-    BRG.box(-45, 4.2, -7.7,  24, 1.2, 0.08, 0.295);
-    BRG.box(+45, 4.2, +7.7,  24, 1.2, 0.08, -0.295);
-    BRG.box(+45, 4.2, +12.3, 24, 1.2, 0.08, -0.295);
+    for (const ez of [8.8, 11.2]) {
+      const escS = instantiateModelGroup(escalatorModel, prepInteriorMat);
+      escS.position.set(45, 0.30, ez);
+      escS.rotation.y = Math.PI / 2;
+      escS.scale.set(1.18, 1.0, escScaleZ);
+      mg.add(escS);
+    }
+    mg.add(makeOfficer(104, 0.30, 6.2, Math.PI / 2));
 
     // Стеклянные ограждения 2-го этажа по периметру атриума (y = 7.0..8.2)
     BRG.box(0, 7.6, -17.0, 112, 1.15, 0.08, 0);
@@ -499,9 +629,14 @@ export function buildInteriors(scene, M, _ctx) {
       }
     }
     for (const [tx, tz] of [[-74, -14], [-74, +14], [-14, -14], [-14, +14], [+14, -14], [+14, +14], [+74, -14], [+74, +14]]) {
-      BW.box(tx, 0.65, tz, 1.8, 0.7, 1.8, 0);
-      BWood.box(tx, 2.4, tz, 0.26, 3.2, 0.26, 0);
-      plantGeos.push(new THREE.DodecahedronGeometry(1.5, 1).translate(tx, 4.4, tz));
+      BW.box(tx, 0.55, tz, 2.0, 0.50, 2.0, 0);
+      mg.add(placeModel(plantModel, tx, 0.80, tz, (tx + tz) * 0.35, 6.2));
+    }
+    for (const lx of [-76, +76]) {
+      mg.add(placeModel(sofaModel, lx - 2.6, 0.30, 0, Math.PI / 2));
+      mg.add(placeModel(sofaModel, lx + 2.6, 0.30, 0, -Math.PI / 2));
+      mg.add(placeModel(tableModel, lx, 0.30, 0, 0));
+      mg.add(placeModel(armchairModel, lx, 0.30, +2.6, Math.PI));
     }
 
     // 14+ светящихся магазинов на 1-м и 2-м этажах (вдоль Северной и Южной стен)
@@ -516,15 +651,33 @@ export function buildInteriors(scene, M, _ctx) {
       const sx = -84 + colIdx * 28;
       // Пропуск у северного открытого входа (row === -1 && colIdx === 3 -> x=0)
       const isNorthEntrance = (row === -1 && colIdx === 3);
+      const dispTex = makeShopDisplayTex(shopCols[i], i % 2 === 0 ? "#f2c17d" : "#80d8ff");
+      const dispMat = M.std({
+        map: dispTex,
+        emissiveMap: dispTex,
+        emissive: new THREE.Color(0xffffff),
+        emissiveIntensity: 0.72,
+        roughness: 0.35,
+      });
       for (const fl of [0, 1]) {
         if (isNorthEntrance && fl === 0) continue;
         const yBase = fl === 0 ? 0.30 : 7.0;
         const zWall = row * 48.0;
         const zFace = row * 41.2;
-        // Перегородки магазина + витрина
+        const yawFace = row === -1 ? 0 : Math.PI;
+        // Перегородки магазина (травертин) + витринное стекло + подсвеченная глубина + маркиза
         BW.box(sx - 13.5, yBase + 2.6, (zWall + zFace) * 0.5, 0.45, 5.2, 13.6, 0);
         BW.box(sx + 13.5, yBase + 2.6, (zWall + zFace) * 0.5, 0.45, 5.2, 13.6, 0);
         BW.box(sx, yBase + 4.4, zFace, 26.8, 1.4, 0.35, 0);
+        BRG.box(sx, yBase + 1.85, zFace, 24.8, 3.6, 0.06, 0);
+        BMA.box(sx, yBase + 3.45, zFace - row * 0.85, 22.0, 0.16, 1.6, 0);
+        BML.box(sx, yBase + 3.35, zFace - row * 0.45, 16.0, 0.06, 0.14, 0);
+
+        const dispMesh = new THREE.Mesh(new THREE.PlaneGeometry(24.6, 3.55), dispMat);
+        dispMesh.position.set(sx, yBase + 1.85, zFace + row * 1.15);
+        dispMesh.rotation.y = yawFace;
+        mg.add(dispMesh);
+
         // Светящаяся вывеска магазина
         const stTex = makeInteriorSignTex(megaShops[i], {
           w: 512, h: 96, bg: shopCols[i], fg: "#ffffff", accent: fl === 0 ? "#00f5ff" : "#ffb347",
@@ -532,7 +685,7 @@ export function buildInteriors(scene, M, _ctx) {
         const stMat = M.std({ map: stTex, emissiveMap: stTex, emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.95, roughness: 0.25 });
         const sm = new THREE.Mesh(new THREE.PlaneGeometry(14.5, 2.4), stMat);
         sm.position.set(sx, yBase + 4.4, zFace - row * 0.22);
-        sm.rotation.y = row === -1 ? 0 : Math.PI;
+        sm.rotation.y = yawFace;
         mg.add(sm);
       }
     }
@@ -547,10 +700,21 @@ export function buildInteriors(scene, M, _ctx) {
       }
     }
 
-    // Внутренний мягкий свет атриума
-    for (const lx of [-65, 0, 65]) {
-      const ml = new THREE.PointLight(0xfff5e4, 42, 120, 1.2);
-      ml.position.set(lx, 15.5, 0);
+    // Линейные потолочные светильники 1F (под перекрытием 2F) и 2F + акцентные пулы света
+    for (let lx = -84; lx <= 84; lx += 28) {
+      BML.box(lx, 6.46, -24, 18.0, 0.06, 0.22, 0);
+      BML.box(lx, 6.46, +24, 18.0, 0.06, 0.22, 0);
+      BML.box(lx, 15.8, -28, 18.0, 0.08, 0.28, 0);
+      BML.box(lx, 15.8, +28, 18.0, 0.08, 0.28, 0);
+    }
+    for (const [lx, ly, lz, col, inten, dist] of [
+      [-65, 15.5, 0, 0xfff5e4, 42, 120],
+      [0, 15.5, 0, 0xfff5e4, 48, 125],
+      [65, 15.5, 0, 0xfff5e4, 42, 120],
+      [-84, 11.8, 0, 0xffdfb0, 26, 65],
+    ]) {
+      const ml = new THREE.PointLight(col, inten, dist, 1.2);
+      ml.position.set(lx, ly, lz);
       mg.add(ml);
     }
 
@@ -561,6 +725,8 @@ export function buildInteriors(scene, M, _ctx) {
     chromeGeos.push(BC.build());
     woodGeos.push(BWood.build());
     darkGeos.push(BD.build());
+    megaLedGeos.push(BML.build());
+    megaAwningGeos.push(BMA.build());
 
     addMerged(mg, floor1Geos, M.graniteLight);
     addMerged(mg, floor2Geos, M.marble);
@@ -570,7 +736,8 @@ export function buildInteriors(scene, M, _ctx) {
     addMerged(mg, woodGeos, warmWoodMat);
     addMerged(mg, darkGeos, M.darkMetal);
     addMerged(mg, waterGeos, M.turquoise, false, false);
-    addMerged(mg, plantGeos, plantMat);
+    addMerged(mg, megaLedGeos, ledCeilMat, false, false);
+    addMerged(mg, megaAwningGeos, M.std({ color: 0x1e2836, roughness: 0.55, metalness: 0.25 }), true, true);
 
     // ── Коллайдеры MEGA Silk Way (ПОЛЫЕ периметровые стены с открытыми Восточным и Северным входами) ──
     const hw = 120, hd = 52.5;
@@ -627,15 +794,18 @@ export function buildInteriors(scene, M, _ctx) {
     bg.name = "interior-beijing";
     group.add(bg);
 
-    const crimson = [], gold = [], wood = [], sofa = [], plant = [], marble = [];
-    const BC = new GB(), BG = new GB(), BW = new GB(), BS = new GB(), BM = new GB();
+    const crimson = [], gold = [], wood = [], marble = [], bLed = [];
+    const BC = new GB(), BG = new GB(), BW = new GB(), BM = new GB(), BL = new GB();
 
     // Мраморный пол холла
     BM.box(0, 0.22, 2.0, 29.0, 0.45, 34.5, 0);
-    // Резной деревянный потолок с балками (y = 6.3)
+    // Резной деревянный потолок с балками и встроенными downlight-светильниками (y = 6.3)
     BW.box(0, 6.4, 2.0, 29.0, 0.3, 34.5, 0);
     for (let gx = -12; gx <= 12; gx += 4) BW.box(gx, 6.15, 2.0, 0.4, 0.35, 34, 0);
     for (let gz = -12; gz <= 16; gz += 4) BW.box(0, 6.15, gz, 28, 0.35, 0.4, 0);
+    for (const lx of [-10, -5, 0, 5, 10]) {
+      for (const lz of [-8, 0, 8, 14]) BL.box(lx, 6.22, lz, 0.42, 0.06, 0.42, 0);
+    }
 
     // Красные китайские колонны внутри лобби
     for (const sx of [-1, 1]) {
@@ -651,18 +821,20 @@ export function buildInteriors(scene, M, _ctx) {
     crimson.push(new THREE.CylinderGeometry(2.3, 2.3, 1.1, 16).translate(0, 5.2, 4.0));
     gold.push(new THREE.CylinderGeometry(1.5, 1.5, 1.2, 16).translate(0, 4.1, 4.0));
 
-    // Мраморная стойка ресепшена Soluxe + лаунж диваны + бамбук
+    // Мраморная стойка ресепшена Soluxe + тёплая подсветка + лаунж-зона GLB + растения
     BM.box(0, 1.05, -10.5, 9.5, 1.25, 1.4, 0);
     BW.box(0, 1.72, -10.5, 9.8, 0.12, 1.55, 0);
-    BS.box(-5.5, 0.85, 6.0, 1.2, 0.55, 4.4, 0);
-    BS.box(+5.5, 0.85, 6.0, 1.2, 0.55, 4.4, 0);
+    BL.box(0, 0.52, -9.78, 9.2, 0.06, 0.08, 0);
+
+    bg.add(placeModel(sofaModel, -5.5, 0.45, 6.0, Math.PI / 2));
+    bg.add(placeModel(sofaModel, +5.5, 0.45, 6.0, -Math.PI / 2));
+    bg.add(placeModel(tableModel, 0, 0.45, 6.0, 0));
+    bg.add(placeModel(armchairModel, -2.8, 0.45, 8.8, Math.PI * 0.85));
+    bg.add(placeModel(armchairModel, +2.8, 0.45, 8.8, -Math.PI * 0.85));
 
     for (const [px, pz] of [[-12, -11], [+12, -11], [-12, +16], [+12, +16]]) {
-      gold.push(new THREE.CylinderGeometry(0.45, 0.35, 0.75, 12).translate(px, 0.82, pz));
-      for (let st = 0; st < 4; st++) {
-        plant.push(new THREE.CylinderGeometry(0.05, 0.06, 2.8, 6).translate(px + (st - 1.5) * 0.14, 2.4, pz));
-      }
-      plant.push(new THREE.DodecahedronGeometry(0.75, 1).translate(px, 3.6, pz));
+      gold.push(new THREE.CylinderGeometry(0.55, 0.48, 0.42, 16).translate(px, 0.66, pz));
+      bg.add(placeModel(plantModel, px, 0.87, pz, px * 0.5, 5.2));
     }
 
     const soluxeTex = makeInteriorSignTex("BEIJING PALACE · SOLUXE", { w: 512, h: 112, bg: "#700c10", fg: "#ffd870", accent: "#ffb830" });
@@ -676,19 +848,23 @@ export function buildInteriors(scene, M, _ctx) {
     const bLight = new THREE.PointLight(0xffdfb0, 22, 34, 1.3);
     bLight.position.set(0, 5.2, 4.0);
     bg.add(bLight);
+    const bDeskLight = new THREE.PointLight(0xffcf88, 12, 18, 1.4);
+    bDeskLight.position.set(0, 4.4, -10.0);
+    bg.add(bDeskLight);
+
+    bg.add(makeOfficer(5.6, 0.45, -9.8, 0));
 
     crimson.push(BC.build());
     gold.push(BG.build());
     wood.push(BW.build());
-    sofa.push(BS.build());
     marble.push(BM.build());
+    bLed.push(BL.build());
 
     addMerged(bg, marble, M.marble);
     addMerged(bg, crimson, M.std({ color: 0x9c1616, roughness: 0.35 }));
     addMerged(bg, gold, M.gold);
     addMerged(bg, wood, darkWoodMat);
-    addMerged(bg, sofa, M.std({ color: 0x62161c, roughness: 0.7 }));
-    addMerged(bg, plant, plantMat);
+    addMerged(bg, bLed, ledAccentMat, false, false);
 
     // ── Коллайдеры Beijing Palace (открытый южный проём x = bx ± 2.4!) ──
     pushBox(bx - 20.5, 0, bz, 11, 14, 40);
@@ -746,6 +922,8 @@ export function buildInteriors(scene, M, _ctx) {
 
     // ── Левая зона: COFFEE BOOM (эспрессо-бар, столики, подвесные светильники) ──
     BWood.box(-6.2, 0.85, +3.6, 7.6, 1.1, 1.0, 0); // барная стойка
+    BL.box(-6.2, 0.50, +3.05, 7.2, 0.06, 0.08, 0);
+    BL.box(-6.2, 4.42, +3.4, 7.4, 0.06, 0.18, 0);
     BD.box(-7.5, 1.65, +3.6, 1.1, 0.55, 0.65, 0); // кофемашина
     for (const [tx, tz] of [[-8.2, -1.6], [-4.5, -1.6], [-8.2, +1.0], [-4.5, +1.0]]) {
       BWood.box(tx, 1.02, tz, 1.1, 0.06, 1.1, 0);
@@ -755,11 +933,30 @@ export function buildInteriors(scene, M, _ctx) {
       BL.box(tx, 3.35, tz, 0.36, 0.24, 0.36, 0);
     }
 
-    // ── Правая зона: MAGNUM EXPRESS (освещённые полки и касса) ──
+    // ── Правая зона: MAGNUM EXPRESS (освещённые полки, линейный свет и касса из мрамора) ──
     for (const sx of [+4.4, +7.2, +9.8]) {
       BSh.box(sx, 1.35, +0.8, 0.85, 2.1, 5.2, 0);
+      BL.box(sx, 4.42, +0.8, 0.16, 0.06, 5.4, 0);
     }
-    BD.box(+2.8, 0.85, -2.5, 1.6, 1.0, 0.9, 0); // касса
+    const magnumCounter = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.0, 0.9), M.marble);
+    magnumCounter.position.set(+2.8, 0.85, -2.5);
+    cg.add(magnumCounter);
+
+    // Внешние уличные маркизы (козырьки) над витринами COFFEE BOOM и MAGNUM EXPRESS
+    const cbAwning = new THREE.Mesh(
+      new THREE.BoxGeometry(8.4, 0.18, 1.9).rotateX(-0.24),
+      M.std({ color: 0x6b2d16, roughness: 0.72 })
+    );
+    cbAwning.position.set(-6.4, 3.35, -D / 2 - 0.85);
+    cbAwning.castShadow = true;
+    cg.add(cbAwning);
+    const mgAwning = new THREE.Mesh(
+      new THREE.BoxGeometry(8.4, 0.18, 1.9).rotateX(-0.24),
+      M.std({ color: 0x14387d, roughness: 0.72 })
+    );
+    mgAwning.position.set(+6.4, 3.35, -D / 2 - 0.85);
+    mgAwning.castShadow = true;
+    cg.add(mgAwning);
 
     // Вывески снаружи и внутри
     const cbTex = makeInteriorSignTex("COFFEE BOOM", { w: 512, h: 128, bg: "#3a1e0e", fg: "#ffe2b0", accent: "#d48a40" });
@@ -776,9 +973,11 @@ export function buildInteriors(scene, M, _ctx) {
     mgOut.rotation.y = Math.PI;
     cg.add(mgOut);
 
-    const cLight = new THREE.PointLight(0xffe6c0, 14, 24, 1.4);
-    cLight.position.set(0, 3.9, 0);
-    cg.add(cLight);
+    for (const [lx, col, inten] of [[-5.5, 0xffd8a4, 14], [+5.5, 0xfff5e4, 14]]) {
+      const cLight = new THREE.PointLight(col, inten, 20, 1.4);
+      cLight.position.set(lx, 3.9, 0);
+      cg.add(cLight);
+    }
 
     white.push(BW.build());
     dark.push(BD.build());

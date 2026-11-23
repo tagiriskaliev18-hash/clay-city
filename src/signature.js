@@ -152,11 +152,25 @@ function buildTransport(parent, M) {
   parent.add(g);
 
   const glass = [], steel = [], neon = [];
-  { const B = new GB(); polyPrism(B, ellipse(25, 19, 24), 0, 14); steel.push(B.build()); }
+  {
+    const B = new GB();
+    polyPrism(B, ellipse(23.5, 17.5, 24), 0, 14);
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      B.box(Math.cos(a) * 24.4, 7, Math.sin(a) * 18.4, 1.3, 14, 1.3, -a);
+    }
+    B.box(0, 14.4, 0, 48, 1.0, 36, 0);
+    steel.push(B.build());
+  }
   glass.push(slopedTower(34, 22, 126, 150, 14));
   {
     const B = new GB();
+    for (let x = -14; x <= 14; x += 4.6) {
+      B.box(x, 76, 11.3, 0.45, 124, 0.55, 0);
+      B.box(x, 76, -11.3, 0.45, 124, 0.55, 0);
+    }
     B.box(0, 154, 4, 24, 9, 8, 0);
+    B.box(0, 160, -2, 14, 5, 8, 0);
     B.box(0, 170, 4, 0.9, 22, 0.9, 0);
     steel.push(B.build());
     const BN = new GB();
@@ -221,12 +235,27 @@ function buildKmgGate(parent, M) {
     B.box(0, 44, +46, 30, 88, 28, 0);
     B.box(0, 52, 0, 28, 30, 116, 0);
     B.box(0, 76, 0, 24, 22, 56, 0);
+    // Пиллярные колоннады подиума и вертикальные травертиновые контрфорсы
+    for (const sz of [-46, 46]) {
+      for (const px of [-15.4, 15.4]) {
+        for (const oz of [-11, 0, 11]) {
+          B.box(px, 44, sz + oz, 1.4, 86, 1.6, 0);
+        }
+      }
+      B.box(0, 88.6, sz, 31.8, 1.4, 29.8, 0);
+    }
+    for (const y of [16, 38, 67]) {
+      B.box(0, y, 0, 29.8, 1.2, 118, 0);
+    }
+    // Крышный технический пентхаус
+    B.box(0, 90, 0, 18, 6, 36, 0);
     for (const side of [-1, 1]) {
       for (let k = 0; k < 5; k++) {
         const a = (k / 5) * 0.95 * side;
         const rx = -24 - Math.sin(Math.abs(a)) * 42;
         const rz = side * (62 + k * 7) * Math.cos(a * 0.4);
         B.box(rx, 15, rz, 18, 30, 16, a * 0.7);
+        B.box(rx, 30.6, rz, 19.2, 1.2, 17.2, a * 0.7);
       }
     }
     stone.push(B.build());
@@ -257,13 +286,29 @@ function buildTalan(parent, M) {
 
   const glass = [], brass = [], stone = [];
   const dx = t2 ? t2.x - t1.x : 30;
-  { const B = new GB(); B.box(dx / 2, 7, 0, 74, 14, 42, 0); stone.push(B.build()); }
+  {
+    const B = new GB();
+    B.box(dx / 2, 7, 0, 72, 14, 40, 0);
+    B.box(dx / 2, 14.5, 0, 76, 1.2, 44, 0);
+    for (let px = -34; px <= 64; px += 14) {
+      B.box(px, 7, +20.8, 1.4, 14, 1.4, 0);
+      B.box(px, 7, -20.8, 1.4, 14, 1.4, 0);
+    }
+    stone.push(B.build());
+  }
   glass.push(slopedTower(30, 26, 130, 145, 14));
   if (t2) glass.push(slopedTower(26, 24, 102, 119, 14).translate(dx, 0, 0));
   {
     const B = new GB();
     for (const ox of [0, dx]) {
       for (const sx of [-1, 1]) B.box(ox + sx * 13.5, 68, 0, 1.5, 102, 26.8, 0);
+      for (const mx of [-9, -3, 3, 9]) {
+        B.box(ox + mx, 74, 13.4, 0.48, 112, 0.65, 0);
+        B.box(ox + mx, 74, -13.4, 0.48, 112, 0.65, 0);
+      }
+      for (const my of [44, 78, 112]) {
+        B.box(ox, my, 0, 29.8, 0.9, 26.6, 0);
+      }
     }
     brass.push(B.build());
   }
@@ -456,27 +501,42 @@ function buildBeijing(parent, M) {
     buildPagodaTier(turq, gold, 7.6, 33, 8.6, 4.0);
   }
 
-  // 4. Ступенчатая каменная и стеклянная башня (y = 12.4 .. 88 м)
+  // 4. Ступенчатая каменная и стеклянная башня с пилястрами и утопленным витражом (y = 12.4 .. 88 м)
   {
     const BS = new GB(), BGl = new GB(), BGd = new GB();
-    // Основной ступенчатый корпус
-    BS.box(0, 40, 0, 44, 56, 30, 0);
-    BS.box(0, 77, 0, 36, 18, 24, 0);
-    // Боковые вертикальные каменные пилоны и карнизы
+    // Основной ступенчатый корпус с утопленными нишами окон
+    BS.box(0, 40, 0, 44, 56, 29.2, 0);
+    BS.box(0, 77, 0, 36, 18, 23.2, 0);
+    // Боковые вертикальные каменные пилоны и аркада подиума ±X
     for (const sx of [-1, 1]) {
-      BS.box(sx * 20.5, 40, 0, 4.5, 58, 31.2, 0);
-      BS.box(sx * 16.5, 77, 0, 3.5, 18, 25.0, 0);
+      BS.box(sx * 20.5, 40, 0, 4.8, 58, 31.6, 0);
+      BS.box(sx * 16.5, 77, 0, 3.8, 18, 25.4, 0);
+      for (const pz of [-15, -5, 5, 15]) {
+        BS.box(sx * 26.8, 6.2, pz, 1.3, 12.4, 1.3, 0);
+      }
     }
+    // Вертикальные травертиновые пилястры между витражными пролётами (глубокий 3D рельеф!)
+    for (const px of [-13.5, -4.5, 4.5, 13.5]) {
+      BS.box(px, 41, 0, 1.4, 53, 31.6, 0);
+    }
+    for (const px of [-10.5, 0, 10.5]) {
+      BS.box(px, 77, 0, 1.2, 16, 25.4, 0);
+    }
+    // Крышный технический пентхаус под нижней пагодой
+    BS.box(0, 87.2, 0, 26, 3.2, 18, 0);
     stone.push(BS.build());
 
-    // Золотисто-бронзовое фасадное остекление
-    BGl.box(0, 41, 0, 36, 52, 30.8, 0);
-    BGl.box(0, 77, 0, 29, 16, 24.8, 0);
+    // Утопленное золотисто-бронзовое фасадное остекление + золотые импосты
+    BGl.box(0, 41, 0, 36, 52, 30.2, 0);
+    BGl.box(0, 77, 0, 29, 16, 24.2, 0);
     glass.push(BGl.build());
 
-    // Горизонтальные китайские золотые пояса-карнизы
-    for (const y of [13, 40, 68, 86]) {
-      BGd.box(0, y, 0, y > 68 ? 38 : 46.5, 1.4, y > 68 ? 26.5 : 32.5, 0);
+    // Горизонтальные китайские золотые пояса-карнизы и вертикальные бронзовые рёбра
+    for (const y of [13, 26, 40, 54, 68, 86]) {
+      BGd.box(0, y, 0, y > 68 ? 38.5 : 46.8, y === 13 || y === 68 || y === 86 ? 1.5 : 0.7, y > 68 ? 26.8 : 32.8, 0);
+    }
+    for (const px of [-9, 0, 9]) {
+      BGd.box(px, 41, 0, 0.45, 52, 30.8, 0);
     }
     gold.push(BGd.build());
   }
@@ -1006,7 +1066,7 @@ function buildQazaqGazNeighbors(parent, M) {
   g.name = "qazaqgaz-neighbors";
   parent.add(g);
 
-  // 1. ЗАПАДНЫЙ СОСЕД (x: 162, z: 150) — 7-этажная тёплая кремовая неоклассика + коричневый 2-эт. подиум + белый навес парковки
+  // 1. ЗАПАДНЫЙ СОСЕД (x: 162, z: 150) — 7-этажная тёплая кремовая неоклассика + рельефные пилястры и карнизы
   {
     const wg = new THREE.Group();
     wg.position.set(162, 0, 150);
@@ -1014,21 +1074,32 @@ function buildQazaqGazNeighbors(parent, M) {
 
     const cream = [], brown = [], glass = [], white = [], steel = [], asphalt = [];
     const B = new GB(), BB = new GB(), BG = new GB();
-    // Тёмно-коричневый 2-этажный подиум (y = 0..7.4)
-    BB.box(0, 3.7, 0, 52, 7.4, 26, 0);
-    BG.box(0, 3.5, 0, 52.4, 4.8, 22, 0);
-    // 5 кремово-бежевых этажей (y = 7.4..25.5)
-    B.box(0, 16.4, 0, 52, 18.0, 26, 0);
-    // Вертикальные пилястры + классический карниз + парапет
-    for (let px = -24; px <= 24; px += 6) {
-      B.box(px, 16.4, 13.2, 1.3, 18.2, 0.8, 0);
-      B.box(px, 16.4, -13.2, 1.3, 18.2, 0.8, 0);
+    // Тёмно-коричневый 2-этажный подиум с аркадой (y = 0..7.4)
+    BB.box(0, 3.7, 0, 50.6, 7.4, 24.6, 0);
+    for (let px = -24; px <= 24; px += 8) {
+      BB.box(px, 3.7, +13.0, 1.4, 7.4, 1.4, 0);
+      BB.box(px, 3.7, -13.0, 1.4, 7.4, 1.4, 0);
     }
-    B.box(0, 25.9, 0, 54.4, 1.4, 28.4, 0);
+    BG.box(0, 3.6, 0, 51.4, 5.2, 25.4, 0);
+    // 5 кремово-бежевых этажей с утопленными оконными проёмами (y = 7.4..25.5)
+    B.box(0, 16.4, 0, 50.4, 18.0, 24.4, 0);
+    // Вертикальные пилястры на ВСЕХ 4 фасадах + межэтажные пояски + карниз + парапет + техэтаж
+    for (let px = -24; px <= 24; px += 6) {
+      B.box(px, 16.4, +13.1, 1.4, 18.2, 1.2, 0);
+      B.box(px, 16.4, -13.1, 1.4, 18.2, 1.2, 0);
+    }
+    for (let pz = -12; pz <= 12; pz += 6) {
+      B.box(+25.8, 16.4, pz, 1.2, 18.2, 1.4, 0);
+      B.box(-25.8, 16.4, pz, 1.2, 18.2, 1.4, 0);
+    }
+    for (const sy of [7.6, 14.6, 20.4]) {
+      B.box(0, sy, 0, 53.0, 0.55, 27.0, 0);
+    }
+    B.box(0, 25.9, 0, 54.8, 1.5, 28.8, 0);
     B.box(0, 27.3, 0, 52.6, 1.4, 26.6, 0);
-    B.box(-14, 28.5, 0, 10, 2.2, 10, 0);
-    B.box(+14, 28.5, 0, 10, 2.2, 10, 0);
-    BG.box(0, 16.5, 0, 49, 14.5, 26.4, 0);
+    B.box(-14, 28.8, 0, 11, 2.8, 11, 0);
+    B.box(+14, 28.8, 0, 11, 2.8, 11, 0);
+    BG.box(0, 16.5, 0, 51.2, 14.5, 25.2, 0);
 
     // Белый арочный крытый парковочный навес перед зданием (x=+34, z=+18 → мир ~196, 168)
     const BW = new GB(), BS = new GB(), BA = new GB();
@@ -1050,7 +1121,7 @@ function buildQazaqGazNeighbors(parent, M) {
     steel.push(BS.build());
     asphalt.push(BA.build());
 
-    addMerged(wg, cream, M.stone, true, true);
+    addMerged(wg, cream, M.travertine, true, true);
     addMerged(wg, brown, M.std({ color: 0x3a2a22, roughness: 0.35 }), true, true);
     addMerged(wg, glass, M.glass, false, true);
     addMerged(wg, white, M.whitePaint, true, true);
@@ -1058,27 +1129,41 @@ function buildQazaqGazNeighbors(parent, M) {
     addMerged(wg, asphalt, M.asphalt, false, true);
   }
 
-  // 2. ВОСТОЧНЫЙ СОСЕД (x: 314, z: 152) — 9-этажный светло-бежевый дом + эркер лестницы + синекупольные башни сзади
+  // 2. ВОСТОЧНЫЙ СОСЕД (x: 314, z: 152) — 9-этажный светло-бежевый дом + выступающие балконы + аркада + синекупольные башни
   {
     const eg = new THREE.Group();
     eg.position.set(314, 0, 152);
     g.add(eg);
 
-    const facade = [], glass = [], stone = [], domes = [], gold = [];
-    const BF = new GB(), BG = new GB(), BS = new GB();
+    const facade = [], glass = [], stone = [], metal = [], domes = [], gold = [];
+    const BF = new GB(), BG = new GB(), BS = new GB(), BM = new GB();
     // Основной 9-этажный жилой корпус (62×20×30 м)
-    BF.box(0, 15, 0, 62, 30, 20, 0);
-    // Первый этаж коммерция
+    BF.box(0, 15, 0, 62, 30, 19.6, 0);
+    // Первый этаж коммерция с колоннами аркады и козырьком
     BS.box(0, 2.2, 0, 62.6, 4.4, 20.6, 0);
+    BS.box(0, 4.6, 0, 63.4, 0.55, 21.8, 0);
+    for (let cx = -28; cx <= 28; cx += 7) {
+      BS.box(cx, 2.2, +10.8, 0.85, 4.4, 0.85, 0);
+      BS.box(cx, 2.2, -10.8, 0.85, 4.4, 0.85, 0);
+    }
     BG.box(0, 2.2, 10.4, 58, 3.2, 0.2, 0);
     // Выступающий вертикальный остеклённый эркер лестничной клетки справа (фото 01!)
     BF.box(23, 15, 11.5, 8.5, 30, 4.5, 0);
     BG.box(23, 16, 13.8, 6.2, 26, 0.3, 0);
-    // Утопленные лоджии и балконные пояса
-    for (let bx = -24; bx <= 14; bx += 9.5) {
-      BS.box(bx, 17, 10.2, 5.2, 23, 0.6, 0);
+    for (const mx of [21.0, 23.0, 25.0]) {
+      BM.box(mx, 16, 14.0, 0.24, 26, 0.3, 0);
     }
-    // Задний блок с синекупольными угловыми башенками (фото 01 справа!)
+    // Выступающие горизонтальные балконные плиты, простенки и металлические ограждения
+    for (let bx = -24; bx <= 14; bx += 9.5) {
+      BS.box(bx, 17, 10.0, 5.4, 23, 0.5, 0);
+      for (let by = 7.4; by <= 27.4; by += 3.3) {
+        BS.box(bx, by, +10.7, 5.8, 0.28, 1.35, 0);
+        BM.box(bx, by + 0.55, +11.3, 5.6, 0.72, 0.08, 0);
+      }
+    }
+    // Карниз крыши + технические надстройки + задний блок с синекупольными угловыми башенками
+    BS.box(0, 30.4, 0, 63.6, 0.9, 21.2, 0);
+    BS.box(-10, 31.8, 0, 12, 2.4, 8, 0);
     BF.box(22, 16, -24, 34, 32, 18, 0);
     for (const sx of [10, 34]) {
       BS.box(sx, 33, -24, 6.5, 4, 6.5, 0);
@@ -1089,10 +1174,12 @@ function buildQazaqGazNeighbors(parent, M) {
     facade.push(BF.build());
     glass.push(BG.build());
     stone.push(BS.build());
+    metal.push(BM.build());
 
     addMerged(eg, facade, M.res, true, true);
     addMerged(eg, stone, M.travertine, true, true);
     addMerged(eg, glass, M.glass, false, true);
+    addMerged(eg, metal, M.darkMetal, true, true);
     addMerged(eg, domes, M.blueDome, true, true);
     addMerged(eg, gold, M.gold, false, true);
   }
@@ -1109,25 +1196,32 @@ function buildHighvillComplex(parent, M, { cx, cz, podiumW, podiumD, towers, sig
   parent.add(g);
 
   const podiumH = 3.8;
-  const terra = [], beige = [], silver = [], glass = [], dark = [], lawn = [], walk = [], wood = [];
+  const terra = [], beige = [], silver = [], glass = [], railGlass = [], dark = [], lawn = [], walk = [], wood = [];
 
-  // Стилобат «двор без машин» + коммерция 1 этажа
+  // Стилобат «двор без машин» + аркада и коммерция 1 этажа
   {
-    const BD = new GB(), BL = new GB(), BW = new GB();
-    BD.box(0, podiumH / 2, 0, podiumW, podiumH, podiumD, 0);
+    const BD = new GB(), BL = new GB(), BW = new GB(), BS = new GB();
+    BD.box(0, podiumH / 2, 0, podiumW - 2.4, podiumH, podiumD - 2.4, 0);
+    BS.box(0, podiumH - 0.15, 0, podiumW + 0.8, 0.45, podiumD + 0.8, 0);
+    for (let px = -podiumW * 0.46; px <= podiumW * 0.46; px += 14) {
+      BS.box(px, podiumH * 0.5, +podiumD * 0.5, 0.85, podiumH, 0.85, 0);
+      BS.box(px, podiumH * 0.5, -podiumD * 0.5, 0.85, podiumH, 0.85, 0);
+    }
+    for (let pz = -podiumD * 0.42; pz <= podiumD * 0.42; pz += 14) {
+      BS.box(+podiumW * 0.5, podiumH * 0.5, pz, 0.85, podiumH, 0.85, 0);
+      BS.box(-podiumW * 0.5, podiumH * 0.5, pz, 0.85, podiumH, 0.85, 0);
+    }
     dark.push(BD.build());
-    // Витрины ретейла по внешнему периметру стилобата
-    glass.push(new THREE.BoxGeometry(podiumW + 0.3, 2.8, podiumD - 16).translate(0, 1.8, 0));
-    glass.push(new THREE.BoxGeometry(podiumW - 16, 2.8, podiumD + 0.3).translate(0, 1.8, 0));
+    silver.push(BS.build());
+    glass.push(new THREE.BoxGeometry(podiumW - 1.2, 2.8, podiumD - 16).translate(0, 1.8, 0));
+    glass.push(new THREE.BoxGeometry(podiumW - 16, 2.8, podiumD - 1.2).translate(0, 1.8, 0));
 
-    // Зелёный газон и гранитные дорожки двора на кровле стилобата
     BL.box(0, podiumH + 0.04, 0, podiumW - 22, 0.08, podiumD - 22, 0);
     lawn.push(BL.build());
     BW.box(0, podiumH + 0.09, 0, podiumW - 14, 0.08, 6.5, 0);
     BW.box(0, podiumH + 0.09, 0, 6.5, 0.08, podiumD - 14, 0);
     walk.push(BW.build());
 
-    // Деревянная пергола в центре двора
     const BP = new GB();
     BP.box(0, podiumH + 2.8, 0, 14, 0.3, 6, 0);
     for (const px of [-6, 0, 6]) for (const pz of [-2.4, 2.4]) {
@@ -1136,25 +1230,48 @@ function buildHighvillComplex(parent, M, { cx, cz, podiumW, podiumD, towers, sig
     wood.push(BP.build());
   }
 
-  // Ступенчатые корейско-современные жилые башни
+  // Ступенчатые жилые башни с PBR-кликкером/травертином, витражным стеклом, стеклянными балконами и жалюзийной короной
   for (const t of towers) {
-    const BT = new GB(), BB = new GB(), BS = new GB(), BG = new GB();
+    const BT = new GB(), BB = new GB(), BS = new GB(), BG = new GB(), BRG = new GB(), BDk = new GB();
     const h1 = t.h * 0.56, h2 = t.h * 0.30, h3 = t.h * 0.14;
-    // Нижний терракотовый / тёпло-бежевый корпус
-    BT.box(t.x, podiumH + h1 * 0.5, t.z, t.w, h1, t.d, 0);
-    // Средний ступенчатый объём (сдвиг)
-    BB.box(t.x + t.sx * 2.5, podiumH + h1 + h2 * 0.5, t.z, t.w * 0.84, h2, t.d * 0.88, 0);
-    // Верхняя серебристо-серая корона
-    BS.box(t.x + t.sx * 4.5, podiumH + h1 + h2 + h3 * 0.5, t.z, t.w * 0.66, h3, t.d * 0.72, 0);
-    BS.box(t.x + t.sx * 4.5, podiumH + t.h + 1.4, t.z, t.w * 0.70, 1.2, t.d * 0.76, 0);
-    // Остеклённые вертикальные ленты балконов
-    BG.box(t.x, podiumH + h1 * 0.5, t.z, t.w * 0.62, h1 * 0.9, t.d + 0.4, 0);
-    BG.box(t.x + t.sx * 2.5, podiumH + h1 + h2 * 0.5, t.z, t.w * 0.54, h2 * 0.9, t.d * 0.88 + 0.4, 0);
+    // Нижний терракотово-песчаниковый корпус с каменной фактурой
+    BT.box(t.x, podiumH + h1 * 0.5, t.z, t.w, h1, t.d * 0.94, 0);
+    // Средний травертиновый объём
+    BB.box(t.x + t.sx * 2.5, podiumH + h1 + h2 * 0.5, t.z, t.w * 0.84, h2, t.d * 0.84, 0);
+    // Верхняя каменная-металлическая корона + парапетная рама + жалюзийный пентхаус (не серый глухой куб!)
+    BB.box(t.x + t.sx * 4.5, podiumH + h1 + h2 + h3 * 0.5, t.z, t.w * 0.66, h3, t.d * 0.72, 0);
+    BS.box(t.x + t.sx * 4.5, podiumH + t.h + 0.8, t.z, t.w * 0.72, 1.1, t.d * 0.78, 0);
+    BDk.box(t.x + t.sx * 4.5, podiumH + t.h + 2.4, t.z, t.w * 0.34, 2.2, t.d * 0.36, 0);
+    for (const lx of [-0.14, 0, 0.14]) {
+      BS.box(t.x + t.sx * 4.5 + t.w * lx, podiumH + t.h + 2.5, t.z, 0.45, 2.4, t.d * 0.38, 0);
+    }
+
+    // Вертикальные каменные и тёмно-бронзовые разделительные пилоны + выступающие балконные плиты + стеклянные ограждения
+    for (const ox of [-0.36, -0.12, 0.12, 0.36]) {
+      BT.box(t.x + t.w * ox, podiumH + h1 * 0.5, t.z, 1.15, h1, t.d + 0.8, 0);
+    }
+    for (let y = podiumH + 3.6; y < podiumH + h1 - 1.5; y += 3.6) {
+      BB.box(t.x, y, t.z, t.w * 0.68, 0.32, t.d + 1.25, 0);
+      BRG.box(t.x, y + 0.58, t.z + t.d * 0.5 + 0.55, t.w * 0.66, 0.88, 0.08, 0);
+      BRG.box(t.x, y + 0.58, t.z - t.d * 0.5 - 0.55, t.w * 0.66, 0.88, 0.08, 0);
+    }
+    for (let y = podiumH + h1 + 3.6; y < podiumH + h1 + h2 - 1.2; y += 3.6) {
+      BS.box(t.x + t.sx * 2.5, y, t.z, t.w * 0.58, 0.28, t.d * 0.88 + 1.0, 0);
+      BRG.box(t.x + t.sx * 2.5, y + 0.54, t.z + t.d * 0.44 + 0.44, t.w * 0.56, 0.82, 0.08, 0);
+      BRG.box(t.x + t.sx * 2.5, y + 0.54, t.z - t.d * 0.44 - 0.44, t.w * 0.56, 0.82, 0.08, 0);
+    }
+
+    // Отражающее витражное стекло с реальным оконным шейдером (M.glassDark / M.glassBlue)
+    BG.box(t.x, podiumH + h1 * 0.5, t.z, t.w * 0.64, h1 * 0.94, t.d + 0.2, 0);
+    BG.box(t.x + t.sx * 2.5, podiumH + h1 + h2 * 0.5, t.z, t.w * 0.56, h2 * 0.94, t.d * 0.86 + 0.2, 0);
+    BG.box(t.x + t.sx * 4.5, podiumH + h1 + h2 + h3 * 0.5, t.z, t.w * 0.46, h3 * 0.88, t.d * 0.74 + 0.2, 0);
 
     terra.push(BT.build());
     beige.push(BB.build());
     silver.push(BS.build());
+    dark.push(BDk.build());
     glass.push(BG.build());
+    railGlass.push(BRG.build());
   }
 
   // Вывеска комплекса
@@ -1163,19 +1280,23 @@ function buildHighvillComplex(parent, M, { cx, cz, podiumW, podiumD, towers, sig
   });
   const sMat = M.std({ map: sTex, emissiveMap: sTex, emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.72 });
   const signS = new THREE.Mesh(new THREE.PlaneGeometry(18, 3.8), sMat);
-  signS.position.set(0, podiumH + 1.6, podiumD / 2 + 0.3);
+  signS.position.set(0, podiumH + 1.6, podiumD / 2 + 0.5);
   g.add(signS);
   const signN = new THREE.Mesh(new THREE.PlaneGeometry(18, 3.8), sMat);
-  signN.position.set(0, podiumH + 1.6, -podiumD / 2 - 0.3);
+  signN.position.set(0, podiumH + 1.6, -podiumD / 2 - 0.5);
   signN.rotation.y = Math.PI;
   g.add(signN);
 
-  const terraMat = M.std({ color: 0xb86d52, roughness: 0.62, metalness: 0.05 });
+  const terraMat = M.std({
+    map: M.travertine.map, normalMap: M.travertine.normalMap, roughnessMap: M.travertine.roughnessMap,
+    color: 0xc8947c, roughness: 0.82, metalness: 0.04, envMapIntensity: 0.85,
+  });
   addMerged(g, terra, terraMat, true, true);
   addMerged(g, beige, M.travertine, true, true);
   addMerged(g, silver, M.steel, true, true);
   addMerged(g, glass, M.glassBlue, false, true);
-  addMerged(g, dark, M.darkMetal, true, true);
+  addMerged(g, railGlass, M.glassClear, false, false);
+  addMerged(g, dark, M.nero || M.darkMetal, true, true);
   addMerged(g, lawn, M.grass, false, true);
   addMerged(g, walk, M.graniteLight, false, true);
   addMerged(g, wood, M.wood, true, true);

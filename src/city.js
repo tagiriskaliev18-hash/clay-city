@@ -28,19 +28,198 @@ export function buildCity(scene, M, _ctx) {
   group.name = "city";
   scene.add(group);
 
-  const S = WORLD.size;
   const RX = WORLD.riverX;   // 780
   const RW = WORLD.riverW;   // 155
-  const RL = 2400;           // протяжённость реки по Z
+  const RL = 8800;           // река Есиль протянута до ±4400 м к горизонту
 
-  // ── 1. ГОРОДСКАЯ ПОДЛОЖКА (без z-fighting, UV в метрах) ──
+  /** Плавный изгиб русла Есиля за пределами КАД (|z| <= 1650 прямо для всех мостов). */
+  const riverCenterX = (z) => {
+    const az = Math.abs(z);
+    if (az <= 1650) return RX;
+    const t = Math.min(1, (az - 1650) / 2750);
+    return RX + Math.sin(t * Math.PI * 1.15) * 340 * Math.sign(z);
+  };
+
+  /** Проверка близости к вылетным и объездным трассам (для выравнивания рельефа и посадок). */
+  const onOuterRoadCorridor = (x, z, pad = 34) => {
+    if (Math.abs(z + 1240) < pad && x > -1420 && x < 1760) return true;
+    if (Math.abs(z - 1460) < pad && x > -1420 && x < 1760) return true;
+    if (Math.abs(x + 1380) < pad && z > -1280 && z < 1500) return true;
+    if (Math.abs(x - 1720) < pad && z > -1280 && z < 1500) return true;
+    if (Math.abs(x - 90) < pad && z > 1060) return true;
+    if (Math.abs(x + 760) < pad && z < -840) return true;
+    if (Math.abs(z) < pad && x < -920) return true;
+    if (Math.abs(z - 280) < pad && x > 1460) return true;
+    return false;
+  };
+
+  /** Рельеф Казахской степи вокруг города (под руслом Есиля всегда -1.55 м, пологие холмы 4..56 м к горизонту). */
+  const steppeHeightAt = (x, z) => {
+    const rcx = riverCenterX(z);
+    const rDist = Math.abs(x - rcx);
+    if (rDist < 84) return -1.55;
+    const bankSlope = THREE.MathUtils.smoothstep(rDist, 84, 130);
+
+    const ux = Math.max(0, Math.abs(x - 170) - 1560);
+    const uz = Math.max(0, Math.abs(z - 110) - 1400);
+    const cityDist = Math.hypot(ux, uz);
+    const hillMask = THREE.MathUtils.smoothstep(cityDist, 40, 520);
+    if (hillMask <= 0.001) return THREE.MathUtils.lerp(-1.55, -0.08, bankSlope);
+
+    const riverMask = THREE.MathUtils.smoothstep(rDist, 88, 280);
+    let h = (
+      Math.sin(x * 0.00145 + z * 0.0009) * 14.0 +
+      Math.cos(x * 0.0023 - z * 0.0019) * 9.5 +
+      Math.sin(x * 0.00072 - z * 0.0011) * 18.5 +
+      20.0
+    );
+    h = Math.max(1.2, h) * hillMask * riverMask;
+    if (onOuterRoadCorridor(x, z, 42)) {
+      const roadFlat = onOuterRoadCorridor(x, z, 22) ? 0.0 : 0.35;
+      h *= roadFlat;
+    }
+    return THREE.MathUtils.lerp(-1.55, h - 0.14, bankSlope);
+  };
+
+  // ── 1. ГОРОДСКАЯ ПОДЛОЖКА (Левый и Правый берег раздельно от русла Есиля!) + КАЗАХСКАЯ СТЕПЬ ──
   {
-    const groundGeo = meterPlane(S * 2.4, S * 2.4, 1, 1);
-    const ground = new THREE.Mesh(groundGeo, M.groundUrban);
-    ground.position.y = -0.06;
+    const westGround = meterPlane(2143, 2920, 1, 1);
+    westGround.translate(-369, -0.05, 110);
+    const eastGround = meterPlane(923, 2920, 1, 1);
+    eastGround.translate(1319, -0.05, 110);
+    const ground = new THREE.Mesh(merge([westGround, eastGround]), M.groundUrban);
     ground.receiveShadow = true;
     ground.name = "ground-urban";
     group.add(ground);
+
+    // Холмистая степь вокруг всей столицы до радиуса ~5800 м (никакой серой пустоты!)
+    const stSize = 11600;
+    const stGeo = new THREE.PlaneGeometry(stSize, stSize, 136, 136);
+    stGeo.rotateX(-Math.PI / 2);
+    const posAttr = stGeo.attributes.position;
+    const colArr = new Float32Array(posAttr.count * 3);
+    const cDry = new THREE.Color(0x6d7649);
+    const cLush = new THREE.Color(0x52653b);
+    const cCrest = new THREE.Color(0x868a59);
+    const cBank = new THREE.Color(0x565441);
+    const tmpC = new THREE.Color();
+
+    for (let i = 0; i < posAttr.count; i++) {
+      const vx = posAttr.getX(i);
+      const vz = posAttr.getZ(i);
+      const vy = steppeHeightAt(vx, vz);
+      posAttr.setY(i, vy);
+
+      const n = 0.5 + 0.5 * Math.sin(vx * 0.0038 + Math.cos(vz * 0.0031) * 2.2);
+      const rDist = Math.abs(vx - riverCenterX(vz));
+      tmpC.copy(cDry).lerp(cLush, n * 0.72);
+      if (vy > 18) tmpC.lerp(cCrest, Math.min(0.65, (vy - 18) / 36));
+      if (rDist < 190) tmpC.lerp(cBank, 1.0 - rDist / 190);
+      colArr[i * 3] = tmpC.r;
+      colArr[i * 3 + 1] = tmpC.g;
+      colArr[i * 3 + 2] = tmpC.b;
+    }
+    stGeo.setAttribute("color", new THREE.BufferAttribute(colArr, 3));
+    stGeo.computeVertexNormals();
+    const steppeMat = M.std({ vertexColors: true, roughness: 0.95, metalness: 0.0, envMapIntensity: 0.34 });
+    const steppeMesh = new THREE.Mesh(stGeo, steppeMat);
+    steppeMesh.receiveShadow = true;
+    steppeMesh.name = "steppe-horizon";
+    group.add(steppeMesh);
+
+    // «Зелёный пояс Астаны» — 2,600 батченных деревьев лесополос вокруг города (1250..3600 м)
+    const beltConifer = [];
+    const beltBirch = [];
+    const rngBelt = (() => {
+      let s = 918273;
+      return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    })();
+    for (let i = 0; i < 4200 && beltConifer.length + beltBirch.length < 2600; i++) {
+      const ang = rngBelt() * Math.PI * 2;
+      const rad = 1320 + rngBelt() * 2350;
+      const tx = 160 + Math.cos(ang) * rad * 1.12;
+      const tz = 110 + Math.sin(ang) * rad * 0.96;
+      if (Math.abs(tx - 170) < 1500 && Math.abs(tz - 110) < 1340) continue;
+      if (Math.abs(tx - riverCenterX(tz)) < 135) continue;
+      if (onOuterRoadCorridor(tx, tz, 36)) continue;
+      // Кластеризация лесополос (реалистичные массивы зелёного пояса вместо шума)
+      const groveNoise = Math.sin(tx * 0.0028) * Math.cos(tz * 0.0026) + 0.45 * Math.sin((tx + tz) * 0.005);
+      if (groveNoise < -0.15) continue;
+      const ty = steppeHeightAt(tx, tz);
+      if (ty < -0.5) continue;
+      const sc = 0.85 + rngBelt() * 0.75;
+      const mat4 = place(tx, ty - 0.15, tz, rngBelt() * Math.PI * 2, sc);
+      if (rngBelt() < 0.62) beltConifer.push(mat4);
+      else beltBirch.push(mat4);
+    }
+    if (beltConifer.length) {
+      const conGeo = merge([
+        new THREE.ConeGeometry(3.4, 11.5, 6).translate(0, 7.6, 0),
+        new THREE.ConeGeometry(2.4, 7.5, 6).translate(0, 12.2, 0),
+        new THREE.CylinderGeometry(0.45, 0.65, 2.4, 5).translate(0, 1.2, 0),
+      ]);
+      const conMesh = new THREE.InstancedMesh(conGeo, M.std({ color: 0x3b5d34, roughness: 0.90, metalness: 0.0 }), beltConifer.length);
+      beltConifer.forEach((m, i) => conMesh.setMatrixAt(i, m));
+      conMesh.receiveShadow = true;
+      conMesh.name = "green-belt-conifers";
+      group.add(conMesh);
+    }
+    if (beltBirch.length) {
+      const birGeo = merge([
+        new THREE.IcosahedronGeometry(3.4, 1).scale(1.0, 1.18, 1.0).translate(0, 7.2, 0),
+        new THREE.CylinderGeometry(0.35, 0.55, 3.6, 5).translate(0, 1.8, 0),
+      ]);
+      const birMesh = new THREE.InstancedMesh(birGeo, M.std({ color: 0x5c7c3e, roughness: 0.88, metalness: 0.0 }), beltBirch.length);
+      beltBirch.forEach((m, i) => birMesh.setMatrixAt(i, m));
+      birMesh.receiveShadow = true;
+      birMesh.name = "green-belt-birches";
+      group.add(birMesh);
+    }
+
+    // Пригородные кварталы, малоэтажные посёлки и дальние силуэты башен за КАД (1420..3350 м)
+    const subMats = [];
+    const subCols = [];
+    const subColPalette = [0xd8d0c4, 0xc9b49c, 0xa8b4c0, 0xc29e88, 0xe0dcd2, 0x8d99a6, 0x7a8592];
+    for (let i = 0; i < 1100 && subMats.length < 440; i++) {
+      const ang = rngBelt() * Math.PI * 2;
+      const rad = 1480 + rngBelt() * 1950;
+      const bx = 160 + Math.cos(ang) * rad * 1.10;
+      const bz = 110 + Math.sin(ang) * rad * 0.98;
+      if (Math.abs(bx - 170) < 1520 && Math.abs(bz - 110) < 1360) continue;
+      if (Math.abs(bx - riverCenterX(bz)) < 155) continue;
+      if (onOuterRoadCorridor(bx, bz, 48)) continue;
+      const nearHwy = onOuterRoadCorridor(bx, bz, 260);
+      if (!nearHwy && rngBelt() < 0.45) continue;
+      const isClusterHigh = nearHwy && rad < 2500 && rngBelt() < 0.24;
+      const w = isClusterHigh ? 22 + rngBelt() * 20 : 14 + rngBelt() * 18;
+      const d = isClusterHigh ? 20 + rngBelt() * 18 : 12 + rngBelt() * 16;
+      const h = isClusterHigh ? 38 + rngBelt() * 72 : 9 + rngBelt() * 20;
+      const by = steppeHeightAt(bx, bz);
+      if (by < -0.5) continue;
+      const m4 = new THREE.Matrix4().compose(
+        new THREE.Vector3(bx, by - 0.6, bz),
+        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.floor(rngBelt() * 4) * (Math.PI / 2)),
+        new THREE.Vector3(w, h, d)
+      );
+      subMats.push(m4);
+      subCols.push(subColPalette[i % subColPalette.length]);
+    }
+    if (subMats.length) {
+      const bodyGeo = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
+      const roofGeo = new THREE.BoxGeometry(1.02, 0.04, 1.02).translate(0, 1.0, 0);
+      const subBody = new THREE.InstancedMesh(bodyGeo, M.stoneRibbon, subMats.length);
+      const subRoof = new THREE.InstancedMesh(roofGeo, M.roof, subMats.length);
+      const cc = new THREE.Color();
+      subMats.forEach((m, i) => {
+        subBody.setMatrixAt(i, m);
+        subRoof.setMatrixAt(i, m);
+        subBody.setColorAt(i, cc.setHex(subCols[i]));
+      });
+      if (subBody.instanceColor) subBody.instanceColor.needsUpdate = true;
+      subBody.castShadow = subBody.receiveShadow = true;
+      subBody.name = "suburban-horizon-buildings";
+      group.add(subBody, subRoof);
+    }
 
     // Парковые зелёные зоны реальной Астаны (y = 0.01, polygonOffset)
     const parkSpecs = [
@@ -72,8 +251,16 @@ export function buildCity(scene, M, _ctx) {
     group.add(parks);
   }
 
-  // ── 2. РЕКА ЕСИЛЬ (анимированный водный шейдер + кибер-отражения + гранитные набережные) ──
-  const waterGeo = meterPlane(RW, RL, 48, 96);
+  // ── 2. РЕКА ЕСИЛЬ (до ±4400 м, плавный изгиб к горизонту + водный шейдер + набережные) ──
+  const waterGeo = meterPlane(RW, RL, 24, 180);
+  {
+    const wp = waterGeo.attributes.position;
+    for (let i = 0; i < wp.count; i++) {
+      const z = wp.getZ(i);
+      wp.setX(i, wp.getX(i) + riverCenterX(z) - RX);
+    }
+    waterGeo.computeVertexNormals();
+  }
   const waterMat = M.phys({
     color: 0x16425b,
     roughness: 0.09,
@@ -119,30 +306,33 @@ export function buildCity(scene, M, _ctx) {
   water.name = "river-esil";
   group.add(water);
 
-  // Тёмное русло реки под водой
-  const riverBed = new THREE.Mesh(
-    new THREE.BoxGeometry(RW + 12, 2.0, RL),
-    M.std({ color: 0x0b1c2a, roughness: 0.98, metalness: 0 })
-  );
-  riverBed.position.set(RX, -1.65, 0);
+  // Тёмное русло реки под водой вдоль всего изгиба
+  const bedGeo = meterPlane(RW + 24, RL, 4, 180);
+  {
+    const bp = bedGeo.attributes.position;
+    for (let i = 0; i < bp.count; i++) {
+      bp.setX(i, bp.getX(i) + riverCenterX(bp.getZ(i)));
+    }
+    bedGeo.computeVertexNormals();
+  }
+  const riverBed = new THREE.Mesh(bedGeo, M.std({ color: 0x0b1c2a, roughness: 0.98, metalness: 0 }));
+  riverBed.position.y = -1.65;
   group.add(riverBed);
 
-  // Двухъярусные гранитные набережные Есиля с променадом и парапетами
+  // Двухъярусные гранитные набережные Есиля (в черте города) + дальние огни береговой линии
+  const cityRiverLen = 2460;
   {
     const granGeos = [], lightGeos = [];
     for (const side of [-1, 1]) {
       const edgeX = RX + side * (RW / 2);
       const B = new GB();
-      // Нижняя прогулочная полка у воды
-      B.box(edgeX + side * 3.5, 0.4, 0, 7, 2.2, RL, 0);
-      // Основная набережная стена
-      B.box(edgeX + side * 11.5, 1.5, 0, 9, 3.2, RL, 0);
+      B.box(edgeX + side * 3.5, 0.4, 0, 7, 2.2, cityRiverLen, 0);
+      B.box(edgeX + side * 11.5, 1.5, 0, 9, 3.2, cityRiverLen, 0);
       granGeos.push(B.build());
 
-      // Светлый гранитный парапет + тумбы каждые 28 м
       const BP = new GB();
-      BP.box(edgeX + side * 7.4, 3.55, 0, 0.75, 0.95, RL, 0);
-      for (let z = -RL / 2 + 20; z < RL / 2 - 20; z += 28) {
+      BP.box(edgeX + side * 7.4, 3.55, 0, 0.75, 0.95, cityRiverLen, 0);
+      for (let z = -cityRiverLen / 2 + 20; z < cityRiverLen / 2 - 20; z += 28) {
         BP.box(edgeX + side * 7.4, 3.85, z, 1.35, 1.45, 1.35, 0);
       }
       lightGeos.push(BP.build());
@@ -152,6 +342,26 @@ export function buildCity(scene, M, _ctx) {
     const q2 = new THREE.Mesh(merge(lightGeos), M.graniteLight);
     q2.castShadow = true; q2.receiveShadow = true;
     group.add(q1, q2);
+
+    // Огни береговой линии далеко за городом (от ±1260 до ±3800 м)
+    const bankLampMats = [];
+    for (let z = 1280; z <= 3800; z += 95) {
+      for (const sgn of [-1, 1]) {
+        const rz = sgn * z;
+        const rcx = riverCenterX(rz);
+        for (const side of [-1, 1]) {
+          const lx = rcx + side * (RW * 0.5 + 10);
+          bankLampMats.push(place(lx, Math.max(0.2, steppeHeightAt(lx, rz)), rz, 0));
+        }
+      }
+    }
+    if (bankLampMats.length) {
+      const bPoles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.14, 0.20, 6.8, 5).translate(0, 3.4, 0), M.darkMetal, bankLampMats.length);
+      const bHeads = new THREE.InstancedMesh(new THREE.SphereGeometry(0.42, 6, 5).translate(0, 7.0, 0), M.glow(0xffd28a, 5.2), bankLampMats.length);
+      bankLampMats.forEach((m, i) => { bPoles.setMatrixAt(i, m); bHeads.setMatrixAt(i, m); });
+      bPoles.frustumCulled = bHeads.frustumCulled = false;
+      group.add(bPoles, bHeads);
+    }
   }
 
   // ── 3. ПРОСПЕКТЫ (мокрый асфальт + разметка + гранитные тротуары) ──
@@ -241,6 +451,7 @@ export function buildCity(scene, M, _ctx) {
   }
 
   // ── 4. ВОДНО-ЗЕЛЁНЫЙ БУЛЬВАР НУРЖОЛ (террасы, фонтаны, крытые галереи, аллеи) ──
+  const fountainCenters = [];
   {
     const granGeos = [], lightGeos = [], lawnGeos = [], fWaterGeos = [], steelGeos = [], glassGeos = [];
     // Сегменты бульвара (чисто разведены вокруг проспектов -760, -430, +90 и площадей)
@@ -286,6 +497,7 @@ export function buildCity(scene, M, _ctx) {
           // Водное зеркало бассейна фонтана
           const fw = new THREE.CylinderGeometry(7.9, 7.9, 0.08, 20).translate(fx, 0.82, 0);
           fWaterGeos.push(fw);
+          fountainCenters.push({ x: fx, y: 0.84, z: 0, r: 6.2, h: 7.2 });
         }
       }
 
@@ -316,6 +528,15 @@ export function buildCity(scene, M, _ctx) {
       revolve(BF, [[0, 0.32], [18, 0.32], [19, 1.1], [17.5, 1.1], [17, 0.55], [0, 0.55]], 32, { smooth: false });
       granGeos.push(BF.build().translate(-560, 0, 0));
       fWaterGeos.push(new THREE.CylinderGeometry(16.8, 16.8, 0.1, 32).translate(-560, 0.92, 0));
+      fountainCenters.push({ x: -560, y: 0.96, z: 0, r: 12.0, h: 11.5 });
+    }
+    // Два парадных фонтана площади Акорды
+    for (const fz of [-44, 44]) {
+      const BAF = new GB();
+      revolve(BAF, [[0, 0.02], [8.8, 0.02], [9.4, 0.72], [8.6, 0.72], [8.2, 0.30], [0, 0.30]], 20, { smooth: false });
+      granGeos.push(BAF.build().translate(518, 0, fz));
+      fWaterGeos.push(new THREE.CylinderGeometry(8.0, 8.0, 0.08, 20).translate(518, 0.62, fz));
+      fountainCenters.push({ x: 518, y: 0.66, z: fz, r: 5.8, h: 8.2 });
     }
 
     const addM = (list, mat, cast = false) => {
@@ -532,13 +753,83 @@ export function buildCity(scene, M, _ctx) {
   addBatch(bridgeGeos.wood, M.wood, false);
   addBatch(bridgeGeos.neon, M.neon(0x00f5ff, 4.2, 0.0), false);
 
+  // ── 6. АНИМИРОВАННЫЕ СТРУИ ФОНТАНОВ НУРЖОЛА И ПЛОЩАДИ АКОРДЫ ──
+  const jets = [];
+  for (const fc of fountainCenters) {
+    jets.push({ x: fc.x, y: fc.y, z: fc.z, baseH: fc.h, r: 0.42, tiltX: 0, tiltZ: 0, ph: fc.x * 0.07 });
+    for (let k = 0; k < 8; k++) {
+      const ang = (k / 8) * Math.PI * 2;
+      const rad = fc.r * 0.55;
+      jets.push({
+        x: fc.x + Math.cos(ang) * rad,
+        y: fc.y,
+        z: fc.z + Math.sin(ang) * rad,
+        baseH: fc.h * 0.58,
+        r: 0.28,
+        tiltX: -Math.sin(ang) * 0.22,
+        tiltZ: Math.cos(ang) * 0.22,
+        ph: ang + fc.x * 0.05,
+      });
+    }
+  }
+  const sprayMat = M.std({
+    color: 0xe6f9ff,
+    emissive: new THREE.Color(0x6ad8ff),
+    emissiveIntensity: 0.35,
+    roughness: 0.25,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.68,
+    depthWrite: false,
+  });
+  const jetMesh = jets.length
+    ? new THREE.InstancedMesh(new THREE.CylinderGeometry(0.16, 1.0, 1.0, 8, 1, true).translate(0, 0.5, 0), sprayMat, jets.length)
+    : null;
+  const rippleMesh = fountainCenters.length
+    ? new THREE.InstancedMesh(new THREE.RingGeometry(0.4, 1.0, 20).rotateX(-Math.PI / 2), sprayMat, fountainCenters.length)
+    : null;
+  if (jetMesh) {
+    jetMesh.frustumCulled = false;
+    jetMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    group.add(jetMesh);
+  }
+  if (rippleMesh) {
+    rippleMesh.frustumCulled = false;
+    rippleMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    group.add(rippleMesh);
+  }
+  const _fm = new THREE.Matrix4(), _fq = new THREE.Quaternion(), _fe = new THREE.Euler(), _fp = new THREE.Vector3(), _fs = new THREE.Vector3();
+
   return {
     group,
     waterMat,
     roadData,
     vents: [],
-    update(dt, time, _cam, cyberMix) {
-      void dt; void time; void _cam; void cyberMix;
+    update(_dt, time, _cam, cyberMix) {
+      if (jetMesh) {
+        for (let i = 0; i < jets.length; i++) {
+          const j = jets[i];
+          const pulse = 0.72 + 0.28 * Math.sin(time * 2.4 + j.ph) + 0.10 * Math.cos(time * 5.3 + j.ph * 2.0);
+          const w = j.r * (0.85 + 0.22 * pulse);
+          _fe.set(j.tiltX, 0, j.tiltZ);
+          _fq.setFromEuler(_fe);
+          _fm.compose(_fp.set(j.x, j.y, j.z), _fq, _fs.set(w, j.baseH * pulse, w));
+          jetMesh.setMatrixAt(i, _fm);
+        }
+        jetMesh.instanceMatrix.needsUpdate = true;
+      }
+      if (rippleMesh) {
+        _fq.identity();
+        for (let i = 0; i < fountainCenters.length; i++) {
+          const fc = fountainCenters[i];
+          const rp = 1.0 + 0.85 * ((time * 0.65 + i * 0.27) % 1);
+          const sc = fc.r * 0.52 * rp;
+          _fm.compose(_fp.set(fc.x, fc.y + 0.03, fc.z), _fq, _fs.set(sc, 1, sc));
+          rippleMesh.setMatrixAt(i, _fm);
+        }
+        rippleMesh.instanceMatrix.needsUpdate = true;
+      }
+      sprayMat.emissiveIntensity = 0.25 + U.uNight.value * 0.55 + (cyberMix || 0) * 0.75;
     },
   };
 }

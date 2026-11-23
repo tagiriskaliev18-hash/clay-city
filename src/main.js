@@ -87,6 +87,7 @@ const steps = [
       vents: [...cityVents, ...cyberVents],
     });
   }],
+  ["HDRI-освещение и IBL", async () => { await env.readyPromise; }],
 ];
 async function build() {
   for (let i = 0; i < steps.length; i++) {

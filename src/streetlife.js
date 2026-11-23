@@ -13,6 +13,8 @@
 import * as THREE from "three";
 import { ROADS, LANDMARKS } from "./config.js";
 import { rng, between, place, merge } from "./geom.js";
+import { loadModelParts } from "./models.js";
+import { U } from "./env.js";
 
 function onRoad(x, z, margin = 2.0) {
   for (const rd of ROADS) {
@@ -63,50 +65,6 @@ function insideBuildingOrWater(x, z, buildings = []) {
   return false;
 }
 
-// ── Геометрии многочастных 3D-деревьев (ствол + слоистая крона) ──
-function makePoplarGeos() {
-  const trunk = new THREE.CylinderGeometry(0.14, 0.28, 6.2, 6).translate(0, 3.1, 0);
-  const foliage = merge([
-    new THREE.ConeGeometry(1.55, 6.5, 8).translate(0, 6.2, 0),
-    new THREE.ConeGeometry(1.45, 7.2, 8).translate(0, 9.8, 0),
-    new THREE.ConeGeometry(1.10, 5.8, 8).translate(0, 13.2, 0),
-  ]);
-  return { trunk, foliage };
-}
-function makeOakGeos() {
-  const trunk = merge([
-    new THREE.CylinderGeometry(0.18, 0.34, 4.2, 7).translate(0, 2.1, 0),
-    new THREE.CylinderGeometry(0.08, 0.14, 2.2, 5).rotateZ(0.48).translate(-0.55, 4.2, 0),
-    new THREE.CylinderGeometry(0.08, 0.14, 2.2, 5).rotateZ(-0.46).translate(0.55, 4.3, 0),
-  ]);
-  const foliage = merge([
-    new THREE.IcosahedronGeometry(2.3, 1).translate(0, 5.8, 0),
-    new THREE.IcosahedronGeometry(1.7, 1).translate(-1.3, 5.2, 0.5),
-    new THREE.IcosahedronGeometry(1.65, 1).translate(1.2, 5.3, -0.4),
-    new THREE.IcosahedronGeometry(1.5, 1).translate(0.1, 7.2, 0.2),
-  ]);
-  return { trunk, foliage };
-}
-function makeBirchGeos() {
-  const trunk = new THREE.CylinderGeometry(0.10, 0.20, 6.4, 6).translate(0, 3.2, 0);
-  const foliage = merge([
-    new THREE.DodecahedronGeometry(1.65, 1).translate(0, 6.2, 0),
-    new THREE.DodecahedronGeometry(1.35, 1).translate(0.7, 7.6, -0.3),
-    new THREE.DodecahedronGeometry(1.25, 1).translate(-0.6, 7.9, 0.4),
-  ]);
-  return { trunk, foliage };
-}
-function makePineGeos() {
-  const trunk = new THREE.CylinderGeometry(0.14, 0.28, 4.8, 6).translate(0, 2.4, 0);
-  const foliage = merge([
-    new THREE.ConeGeometry(2.3, 3.4, 8).translate(0, 4.2, 0),
-    new THREE.ConeGeometry(1.9, 3.2, 8).translate(0, 6.0, 0),
-    new THREE.ConeGeometry(1.45, 2.9, 8).translate(0, 7.7, 0),
-    new THREE.ConeGeometry(0.95, 2.4, 8).translate(0, 9.2, 0),
-  ]);
-  return { trunk, foliage };
-}
-
 function makeBusStopSignTex() {
   const c = document.createElement("canvas");
   c.width = 512; c.height = 96;
@@ -125,11 +83,33 @@ function makeBusStopSignTex() {
   return t;
 }
 
-export function buildStreetLife(scene, M, _ctx, buildings = []) {
+export async function buildStreetLife(scene, M, _ctx, buildings = []) {
   const group = new THREE.Group();
   group.name = "astana-streetlife";
   scene.add(group);
   const r = rng(552077);
+
+  // Параллельная загрузка Draco GLB моделей для деревьев, припаркованных авто и пешеходов
+  const [treeModels, carModels, pedModel] = await Promise.all([
+    Promise.all([
+      loadModelParts("./assets/models/tree_poplar.glb", { groundY: true }),
+      loadModelParts("./assets/models/tree_oak.glb", { groundY: true }),
+      loadModelParts("./assets/models/tree_birch.glb", { groundY: true }),
+      loadModelParts("./assets/models/tree_spruce.glb", { groundY: true }),
+    ]),
+    Promise.all([
+      loadModelParts("./assets/models/car_sedan.glb", { rotateY: Math.PI, groundY: true }),
+      loadModelParts("./assets/models/car_suv.glb", { rotateY: Math.PI, groundY: true }),
+    ]),
+    loadModelParts("./assets/models/pedestrian.glb", { groundY: true }),
+  ]);
+  const treeModelByKind = {
+    poplar: treeModels[0],
+    oak:    treeModels[1],
+    birch:  treeModels[2],
+    pine:   treeModels[3],
+  };
+  const [sedanModel, suvModel] = carModels;
 
   // ============================================================
   // 1. 2,400+ МНОГОЧАСТНЫХ 3D ДЕРЕВЬЕВ + КАМЕННЫЕ ЦВЕТНИКИ
@@ -142,30 +122,30 @@ export function buildStreetLife(scene, M, _ctx, buildings = []) {
 
   // 1а. Пирамидальные тополя вдоль QazaqGaz HQ и улиц (как на фото 01/03/05!)
   const qg = LANDMARKS.qazaqGaz;
-  for (let x = qg.x - 42; x <= qg.x + 42; x += 9.5) {
-    if (Math.abs(x - qg.x) < 16) continue; // центр открыт для обзора фасада и парковки!
+  for (let x = qg.x - 40; x <= qg.x + 40; x += 11.5) {
+    if (Math.abs(x - qg.x) < 16) continue;
     pushTree("poplar", x, qg.z + 44, between(r, 0.9, 1.15), 0, true);
     pushTree("poplar", x, qg.z - 25, between(r, 0.88, 1.12), 0, true);
   }
-  for (let z = qg.z - 22; z <= qg.z + 36; z += 9.0) {
+  for (let z = qg.z - 20; z <= qg.z + 36; z += 11.5) {
     pushTree("poplar", qg.x - 32, z, between(r, 0.9, 1.12), 0, true);
     pushTree("poplar", qg.x + 32, z, between(r, 0.9, 1.12), 0, true);
   }
   // Тополя перед соседними зданиями QazaqGaz
-  for (let x = 128; x <= 355; x += 11) {
+  for (let x = 132; x <= 350; x += 15) {
     if (Math.abs(x - qg.x) < 35) continue;
     pushTree("poplar", x, 198, between(r, 0.88, 1.15), 0, true);
   }
 
-  // 1б. Аллеи вдоль всех проспектов ROADS (пирамидальные тополя + дубы)
+  // 1б. Аллеи вдоль городских проспектов ROADS (дальние вылетные трассы покрыты Зелёным поясом в city.js)
   for (const rd of ROADS) {
-    if (rd.type === "bridge") continue;
+    if (rd.type === "bridge" || rd.outer) continue;
     const dx = rd.x1 - rd.x0, dz = rd.z1 - rd.z0;
     const len = Math.hypot(dx, dz);
     const ang = Math.atan2(dx, dz);
     const cos = Math.cos(ang), sin = Math.sin(ang);
     const isBlvd = rd.type === "boulevard";
-    const step = isBlvd ? 18 : 26;
+    const step = isBlvd ? 34 : 68;
     const n = Math.floor(len / step);
     for (let i = 1; i < n; i++) {
       const t = i / n;
@@ -175,100 +155,113 @@ export function buildStreetLife(scene, M, _ctx, buildings = []) {
         const tx = bx + cos * off * side;
         const tz = bz - sin * off * side;
         const kind = isBlvd ? (i % 3 === 0 ? "pine" : "oak") : (i % 4 === 0 ? "birch" : "poplar");
-        pushTree(kind, tx, tz, between(r, 0.78, 1.18), isBlvd ? 0.32 : 0);
+        pushTree(kind, tx, tz, between(r, 0.80, 1.18), isBlvd ? 0.32 : 0);
       }
     }
   }
 
-  // 1в. Ботанический сад (240+ многовидовых деревьев!)
-  for (let i = 0; i < 320; i++) {
+  // 1в. Ботанический сад
+  for (let i = 0; i < 88; i++) {
     const tx = -410 + r() * 222;
     const tz = 550 + r() * 185;
-    if (Math.abs(tx + 298) < 5 || Math.abs(tz - 645) < 5) continue; // дорожки
+    if (Math.abs(tx + 298) < 5 || Math.abs(tz - 645) < 5) continue;
     const kinds = ["oak", "birch", "pine", "poplar"];
-    pushTree(kinds[i % 4], tx, tz, between(r, 0.75, 1.25), 0.02);
+    pushTree(kinds[i % 4], tx, tz, between(r, 0.78, 1.25), 0.02);
   }
-  // Западный сквер Ботанического сада
-  for (let i = 0; i < 45; i++) {
+  for (let i = 0; i < 14; i++) {
     pushTree(i % 2 === 0 ? "birch" : "oak", -494 + r() * 44, 568 + r() * 165, between(r, 0.8, 1.15), 0.02);
   }
 
   // 1г. Парки Астаны (Президентский парк, Парк Влюблённых, набережные Есиля, EXPO-парк)
   const parkZones = [
-    { x0: 910,  x1: 1320, z0: -380, z1: 380, n: 260 }, // Президентский парк (Правый берег)
-    { x0: -1120, x1: -920, z0: -165, z1: 165, n: 120 }, // Парк Влюблённых у Хан Шатыра
-    { x0: 595,  x1: 695,  z0: -720, z1: -140, n: 110 }, // Левобережная набережная север
-    { x0: 595,  x1: 695,  z0: +140, z1: +720, n: 110 }, // Левобережная набережная юг
-    { x0: -40,  x1: +250, z0: +820, z1: +1055, n: 90 }, // Парк EXPO вокруг Нур Алем
+    { x0: 910,  x1: 1320, z0: -380, z1: 380, n: 64 },
+    { x0: -1120, x1: -920, z0: -165, z1: 165, n: 32 },
+    { x0: 595,  x1: 695,  z0: -720, z1: -140, n: 26 },
+    { x0: 595,  x1: 695,  z0: +140, z1: +720, n: 26 },
+    { x0: -40,  x1: +250, z0: +820, z1: +1055, n: 24 },
   ];
   for (const pk of parkZones) {
     for (let i = 0; i < pk.n; i++) {
       const tx = between(r, pk.x0, pk.x1);
       const tz = between(r, pk.z0, pk.z1);
       const k = i % 3 === 0 ? "pine" : i % 3 === 1 ? "oak" : "birch";
-      pushTree(k, tx, tz, between(r, 0.78, 1.25));
+      pushTree(k, tx, tz, between(r, 0.80, 1.25));
     }
   }
 
-  // 1д. Дворы Highvill Park и Highvill Astana (на кровле стилобата y = 3.8 м!)
-  for (let i = 0; i < 38; i++) {
+  // 1д. Дворы Highvill Park и Highvill Astana (на кровле стилобата y = 3.8 м)
+  for (let i = 0; i < 16; i++) {
     const tx = -630 + between(r, -42, 42);
     const tz = 660 + between(r, -28, 28);
     if (Math.hypot(tx + 630, tz - 660) < 10) continue;
     pushTree(i % 2 === 0 ? "birch" : "pine", tx, tz, between(r, 0.65, 0.92), 3.84, true);
   }
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 8; i++) {
     const tx = 1145 + between(r, -32, 32);
     const tz = -104 + between(r, -12, 12);
     pushTree(i % 2 === 0 ? "pine" : "oak", tx, tz, between(r, 0.62, 0.88), 3.84, true);
   }
 
-  // 1е. Городские дворы вдоль кварталов (чтобы в каждом квартале была зелень!)
-  for (let i = 0; i < 650; i++) {
+  // 1е. Городские дворы вдоль кварталов
+  for (let i = 0; i < 120; i++) {
     const tx = between(r, -1250, 1480);
     const tz = between(r, -900, 1140);
     if (Math.hypot(tx * 0.78, (tz - 120) * 0.88) > 1460) continue;
     const k = i % 3 === 0 ? "poplar" : i % 3 === 1 ? "oak" : "birch";
-    pushTree(k, tx, tz, between(r, 0.72, 1.12));
+    pushTree(k, tx, tz, between(r, 0.75, 1.12));
   }
 
-  const barkDarkMat = M.std({ color: 0x4a3828, roughness: 0.92 });
-  const barkBirchMat = M.std({ color: 0xe6e4dc, roughness: 0.82 });
-  const foliageMat = M.std({ color: 0xffffff, roughness: 0.84, metalness: 0.02 });
   const treePalettes = {
-    poplar: [0x3d6e2c, 0x4b8036, 0x568d3e],
-    oak:    [0x35642a, 0x437834, 0x52883f],
-    birch:  [0x59923f, 0x6ca64c, 0x7cb356],
-    pine:   [0x1e4526, 0x26522e, 0x2d5e35],
-  };
-  const treeGeoMakers = {
-    poplar: makePoplarGeos,
-    oak:    makeOakGeos,
-    birch:  makeBirchGeos,
-    pine:   makePineGeos,
+    poplar: [0xb8de88, 0xc8e698, 0xd6eeaa],
+    oak:    [0xaed27e, 0xbddc8c, 0xcae49a],
+    birch:  [0xc4e28c, 0xd2ea9c, 0xdef2aa],
+    pine:   [0x86ba7c, 0x94c486, 0xa2ce90],
   };
   let totalTrees = 0;
+  const foliageMats = [];
   const tmpC = new THREE.Color();
   for (const [kind, list] of Object.entries(treeBuckets)) {
     if (!list.length) continue;
     totalTrees += list.length;
-    const geos = treeGeoMakers[kind]();
-    const trunks = new THREE.InstancedMesh(geos.trunk, kind === "birch" ? barkBirchMat : barkDarkMat, list.length);
-    const crowns = new THREE.InstancedMesh(geos.foliage, foliageMat, list.length);
+    const model = treeModelByKind[kind];
     const pal = treePalettes[kind];
-    list.forEach((t, i) => {
-      const mat = place(t.x, t.y, t.z, t.yaw, t.sc, t.sc, t.sc);
-      trunks.setMatrixAt(i, mat);
-      crowns.setMatrixAt(i, mat);
-      crowns.setColorAt(i, tmpC.setHex(pal[Math.floor(t.col * pal.length)]));
-    });
-    trunks.instanceMatrix.needsUpdate = true;
-    crowns.instanceMatrix.needsUpdate = true;
-    if (crowns.instanceColor) crowns.instanceColor.needsUpdate = true;
-    crowns.castShadow = true;
-    crowns.receiveShadow = true;
-    trunks.frustumCulled = crowns.frustumCulled = false;
-    group.add(trunks, crowns);
+    for (const part of model.parts) {
+      const isFoliage = part.name.toLowerCase().includes("foliage");
+      const mat = part.material.clone();
+      if (isFoliage) {
+        mat.transparent = false;
+        mat.alphaTest = 0.22;
+        mat.side = THREE.DoubleSide;
+        mat.depthWrite = true;
+        mat.roughness = 0.78;
+        mat.metalness = 0.0;
+        mat.envMapIntensity = 1.5;
+        if (mat.normalScale) mat.normalScale.set(0.28, 0.28);
+        mat.color.setHex(0xffffff);
+        mat.emissive = new THREE.Color(0x1b3412);
+        mat.emissiveIntensity = 0.42;
+        foliageMats.push(mat);
+      } else {
+        mat.transparent = false;
+        mat.roughness = Math.max(mat.roughness ?? 0.9, 0.85);
+      }
+      M.setup(mat);
+      const inst = new THREE.InstancedMesh(part.geometry, mat, list.length);
+      list.forEach((t, i) => {
+        const sy = t.sc * (0.90 + t.col * 0.24);
+        const sxz = t.sc * (0.92 + (1 - t.col) * 0.16);
+        inst.setMatrixAt(i, place(t.x, t.y, t.z, t.yaw, sxz, sy, sxz));
+        if (isFoliage) inst.setColorAt(i, tmpC.setHex(pal[Math.floor(t.col * pal.length)]));
+      });
+      inst.instanceMatrix.needsUpdate = true;
+      if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+      inst.computeBoundingSphere();
+      // Крона без само-теней (иначе плоские карточки превращаются в чёрный силуэт!), ствол отбрасывает тень
+      inst.castShadow = !isFoliage;
+      inst.receiveShadow = !isFoliage;
+      inst.frustumCulled = true;
+      group.add(inst);
+    }
   }
 
   // Каменные клумбы-цветники (вдоль Нуржол, MEGA Plaza, QazaqGaz, Ботанический сад)
@@ -449,23 +442,38 @@ export function buildStreetLife(scene, M, _ctx, buildings = []) {
   }
 
   if (parked.length) {
-    const pBody = merge([
-      new THREE.BoxGeometry(1.86, 0.62, 4.35).translate(0, 0.46, 0),
-      new THREE.BoxGeometry(1.56, 0.52, 2.05).translate(0, 0.98, -0.15),
-    ]);
-    const pGlass = new THREE.BoxGeometry(1.58, 0.40, 1.90).translate(0, 0.98, -0.15);
-    const pm = new THREE.InstancedMesh(pBody, M.std({ color: 0xffffff, roughness: 0.26, metalness: 0.68 }), parked.length);
-    const pg = new THREE.InstancedMesh(pGlass, M.glassDark, parked.length);
-    parked.forEach((c, i) => {
-      const m = place(c.x, c.y, c.z, c.yaw);
-      pm.setMatrixAt(i, m);
-      pg.setMatrixAt(i, m);
-      pm.setColorAt(i, tmpC.setHex(c.col));
-    });
-    if (pm.instanceColor) pm.instanceColor.needsUpdate = true;
-    pm.castShadow = true; pm.receiveShadow = true;
-    pm.frustumCulled = pg.frustumCulled = false;
-    group.add(pm, pg);
+    const parkedSedans = [], parkedSuvs = [];
+    parked.forEach((c, idx) => ((idx % 3 === 0 ? parkedSuvs : parkedSedans).push(c)));
+    const spawnParkedBatch = (model, items) => {
+      if (!items.length) return;
+      for (const part of model.parts) {
+        const isPaint = part.name === "CarPaint";
+        const mat = part.material.clone();
+        if (isPaint) {
+          mat.color.setHex(0xffffff);
+          mat.metalness = 0.72;
+          mat.roughness = 0.22;
+        } else if (part.name === "CarGlass") {
+          mat.roughness = 0.05;
+          mat.metalness = 0.35;
+        }
+        M.setup(mat);
+        const inst = new THREE.InstancedMesh(part.geometry, mat, items.length);
+        items.forEach((c, i) => {
+          inst.setMatrixAt(i, place(c.x, c.y, c.z, c.yaw));
+          if (isPaint) inst.setColorAt(i, tmpC.setHex(c.col));
+        });
+        inst.instanceMatrix.needsUpdate = true;
+        if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+        inst.computeBoundingSphere();
+        inst.castShadow = isPaint;
+        inst.receiveShadow = true;
+        inst.frustumCulled = true;
+        group.add(inst);
+      }
+    };
+    spawnParkedBatch(sedanModel, parkedSedans);
+    spawnParkedBatch(suvModel, parkedSuvs);
   }
 
   // ============================================================
@@ -586,17 +594,36 @@ export function buildStreetLife(scene, M, _ctx, buildings = []) {
   }
 
   // ============================================================
-  // 6. 240+ АНИМИРОВАННЫХ ШАГАЮЩИХ ПЕШЕХОДОВ
+  // 6. ЖИВЫЕ ПЕШЕХОДЫ (360+), БАШЕННЫЕ КРАНЫ И СТАИ ПТИЦ / ДРОНЫ
   // ============================================================
   const peds = [];
   const pedCols = [0x2c3e50, 0xd84315, 0x1565c0, 0xf5f5f5, 0x2e7d32, 0x6a1b9a, 0xef6c00, 0x37474f];
-  // Бульвар Нуржол (120 человек)
-  for (let i = 0; i < 120; i++) {
+  // Бульвар Нуржол (140 человек)
+  for (let i = 0; i < 140; i++) {
     const x0 = between(r, -820, 500), x1 = x0 + between(r, -90, 90);
     const z = between(r, -12, 12);
     peds.push({ x0, z0: z, x1, z1: z + between(r, -4, 4), y: 0.32, t0: r(), spd: between(r, 1.15, 1.75), col: pedCols[i % pedCols.length] });
   }
-  // Ботанический сад, QazaqGaz площадь, MEGA Plaza + внутри MEGA Silk Way (120 человек)
+  // Площадь Байтерека, Круглая площадь и променад у Дома Министерств / Акорды (80 человек)
+  for (let i = 0; i < 28; i++) {
+    const ang = r() * Math.PI * 2;
+    const rad = between(r, 42, 58);
+    const x0 = Math.cos(ang) * rad, z0 = Math.sin(ang) * rad;
+    const a2 = ang + between(r, -0.7, 0.7);
+    peds.push({ x0, z0, x1: Math.cos(a2) * rad, z1: Math.sin(a2) * rad, y: 0.34, t0: r(), spd: between(r, 1.0, 1.55), col: pedCols[i % pedCols.length] });
+  }
+  for (let i = 0; i < 28; i++) {
+    const ang = r() * Math.PI * 2;
+    const rad = between(r, 24, 64);
+    const x0 = -560 + Math.cos(ang) * rad, z0 = Math.sin(ang) * rad;
+    const a2 = ang + between(r, -0.6, 0.6);
+    peds.push({ x0, z0, x1: -560 + Math.cos(a2) * rad, z1: Math.sin(a2) * rad, y: 0.34, t0: r(), spd: between(r, 1.05, 1.6), col: pedCols[i % pedCols.length] });
+  }
+  for (let i = 0; i < 24; i++) {
+    const x0 = between(r, 340, 520), z0 = between(r, -16, 16);
+    peds.push({ x0, z0, x1: x0 + between(r, -45, 45), z1: z0 + between(r, -5, 5), y: 0.32, t0: r(), spd: between(r, 1.1, 1.65), col: pedCols[i % pedCols.length] });
+  }
+  // Ботанический сад, QazaqGaz площадь, MEGA Plaza + Хан Шатыр (140 человек)
   for (let i = 0; i < 50; i++) {
     const x0 = between(r, -395, -210), z0 = between(r, 560, 725);
     peds.push({ x0, z0, x1: x0 + between(r, -40, 40), z1: z0 + between(r, -35, 35), y: 0.04, t0: r(), spd: between(r, 1.0, 1.6), col: pedCols[i % pedCols.length] });
@@ -609,23 +636,28 @@ export function buildStreetLife(scene, M, _ctx, buildings = []) {
     const x0 = between(r, 195, 275), z0 = between(r, 178, 194);
     peds.push({ x0, z0, x1: x0 + between(r, -26, 26), z1: z0 + between(r, -4, 4), y: 0.04, t0: r(), spd: between(r, 1.1, 1.6), col: pedCols[i % pedCols.length] });
   }
+  for (let i = 0; i < 20; i++) {
+    const x0 = between(r, -860, -810), z0 = between(r, -28, 28);
+    peds.push({ x0, z0, x1: x0 + between(r, -25, 25), z1: z0 + between(r, -12, 12), y: 0.32, t0: r(), spd: between(r, 1.05, 1.5), col: pedCols[i % pedCols.length] });
+  }
 
-  const pedTorsoGeo = merge([
-    new THREE.CylinderGeometry(0.18, 0.22, 0.72, 6).translate(0, 1.12, 0),
-    new THREE.SphereGeometry(0.16, 7, 6).translate(0, 1.64, 0),
-  ]);
-  const pedLegsGeo = merge([
-    new THREE.BoxGeometry(0.13, 0.76, 0.14).translate(-0.10, 0.38, 0),
-    new THREE.BoxGeometry(0.13, 0.76, 0.14).translate(+0.10, 0.38, 0),
-  ]);
-  const pedBodyInst = new THREE.InstancedMesh(pedTorsoGeo, M.std({ color: 0xffffff, roughness: 0.7 }), peds.length);
-  const pedLegInst = new THREE.InstancedMesh(pedLegsGeo, M.darkMetal, peds.length);
-  peds.forEach((p, i) => pedBodyInst.setColorAt(i, tmpC.setHex(p.col)));
-  if (pedBodyInst.instanceColor) pedBodyInst.instanceColor.needsUpdate = true;
-  pedBodyInst.frustumCulled = pedLegInst.frustumCulled = false;
-  pedBodyInst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  pedLegInst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  group.add(pedBodyInst, pedLegInst);
+  const pedInsts = pedModel.parts.map((part) => {
+    const isCoat = part.name === "UrbCoat";
+    const mat = part.material.clone();
+    if (isCoat) mat.color.setHex(0xffffff);
+    M.setup(mat);
+    const inst = new THREE.InstancedMesh(part.geometry, mat, peds.length);
+    if (isCoat) {
+      peds.forEach((p, i) => inst.setColorAt(i, tmpC.setHex(p.col)));
+      if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    }
+    inst.castShadow = part.name === "UrbCoat" || part.name === "UrbPants";
+    inst.receiveShadow = true;
+    inst.frustumCulled = false;
+    inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    group.add(inst);
+    return inst;
+  });
 
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1), UPV = new THREE.Vector3(0, 1, 0);
   function updatePeds(time) {
@@ -638,18 +670,130 @@ export function buildStreetLife(scene, M, _ctx, buildings = []) {
       const dir = cyc <= 1 ? 1 : -1;
       const x = p.x0 + dx * ping;
       const z = p.z0 + dz * ping;
-      const bob = Math.abs(Math.sin(time * p.spd * 4.2 + i)) * 0.05;
+      const bob = Math.abs(Math.sin(time * p.spd * 4.2 + i)) * 0.035;
       const yaw = Math.atan2(dx * dir, dz * dir);
       _q.setFromAxisAngle(UPV, yaw);
       _m.compose(_p.set(x, p.y + bob, z), _q, _s);
-      pedBodyInst.setMatrixAt(i, _m);
-      _m.compose(_p.set(x, p.y, z), _q, _s);
-      pedLegInst.setMatrixAt(i, _m);
+      for (let k = 0; k < pedInsts.length; k++) pedInsts[k].setMatrixAt(i, _m);
     }
-    pedBodyInst.instanceMatrix.needsUpdate = true;
-    pedLegInst.instanceMatrix.needsUpdate = true;
+    for (let k = 0; k < pedInsts.length; k++) pedInsts[k].instanceMatrix.needsUpdate = true;
   }
   updatePeds(0);
+
+  // ============================================================
+  // 7. 3 МЕДЛЕННО ВРАЩАЮЩИХСЯ БАШЕННЫХ КРАНА С АВИАМАЯКАМИ
+  // ============================================================
+  const craneYellowMat = M.std({ color: 0xe6a618, roughness: 0.45, metalness: 0.35 });
+  const craneRedBeaconMat = M.neon(0xff1e14, 7.5, 0.4);
+  const craneSpots = [
+    { x: -1085, z: +480, h: 118, jib: 46, phase: 0.2 },
+    { x: +460,  z: -620, h: 106, jib: 42, phase: 2.1 },
+    { x: +1340, z: +460, h: 98,  jib: 40, phase: 4.3 },
+  ];
+  const cranes = [];
+  for (const cs of craneSpots) {
+    if (onRoad(cs.x, cs.z, 30) || insideBuildingOrWater(cs.x, cs.z, buildings)) continue;
+    const cg = new THREE.Group();
+    cg.position.set(cs.x, 0, cs.z);
+    // Базовая бетонная плита и мачта крана
+    const base = new THREE.Mesh(new THREE.BoxGeometry(7.2, 2.2, 7.2), M.concreteDark);
+    base.position.y = 1.1;
+    const mast = new THREE.Mesh(new THREE.BoxGeometry(2.6, cs.h, 2.6), craneYellowMat);
+    mast.position.y = cs.h * 0.5;
+    mast.castShadow = true;
+    // Подстроящаяся бетонная коробка вокруг крана (эффект живой стройплощадки)
+    const siteCore = new THREE.Mesh(new THREE.BoxGeometry(24, 28, 18), M.concrete);
+    siteCore.position.set(16, 14, 8);
+    siteCore.castShadow = siteCore.receiveShadow = true;
+
+    // Поворотная стрела
+    const boom = new THREE.Group();
+    boom.position.y = cs.h;
+    const jibMesh = new THREE.Mesh(
+      merge([
+        new THREE.BoxGeometry(cs.jib, 2.2, 1.8).translate(cs.jib * 0.5 - 6, 0, 0),
+        new THREE.BoxGeometry(16, 2.0, 2.0).translate(-12, 0, 0),
+        new THREE.ConeGeometry(1.8, 10, 4).rotateY(Math.PI / 4).translate(0, 5.0, 0),
+        new THREE.BoxGeometry(4.2, 3.0, 3.2).translate(-18, -0.5, 0), // противовес
+      ]),
+      craneYellowMat
+    );
+    jibMesh.castShadow = true;
+    const counterweight = new THREE.Mesh(new THREE.BoxGeometry(4.4, 3.2, 3.4), M.concreteDark);
+    counterweight.position.set(-18, -0.6, 0);
+    const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.10, 34, 5), M.darkMetal);
+    cable.position.set(cs.jib * 0.62, -17, 0);
+    const beaconBulb = new THREE.Mesh(new THREE.SphereGeometry(0.62, 8, 6), craneRedBeaconMat);
+    beaconBulb.position.set(0, 10.4, 0);
+    const tipBeacon = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), craneRedBeaconMat);
+    tipBeacon.position.set(cs.jib - 6.5, 1.4, 0);
+    boom.add(jibMesh, counterweight, cable, beaconBulb, tipBeacon);
+
+    cg.add(base, mast, siteCore, boom);
+    group.add(cg);
+    cranes.push({ boom, beaconBulb, tipBeacon, phase: cs.phase });
+  }
+
+  // ============================================================
+  // 8. СТАИ ПТИЦ В НЕБЕ (ДЕНЬ/ЗАКАТ) И ГОРОДСКИЕ ДРОНЫ (CYBER 2077)
+  // ============================================================
+  const birdCount = 66;
+  const birdGeo = merge([
+    new THREE.BoxGeometry(1.15, 0.08, 0.34).rotateZ(0.28).translate(0.55, 0.14, 0),
+    new THREE.BoxGeometry(1.15, 0.08, 0.34).rotateZ(-0.28).translate(-0.55, 0.14, 0),
+    new THREE.BoxGeometry(0.22, 0.22, 0.85),
+  ]);
+  const birdMat = M.std({ color: 0xf4f4f2, roughness: 0.65, metalness: 0.05 });
+  const birdMesh = new THREE.InstancedMesh(birdGeo, birdMat, birdCount);
+  birdMesh.frustumCulled = false;
+  birdMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  group.add(birdMesh);
+
+  const flocks = [
+    { cx: 780, cz: -40, rMin: 75, rMax: 170, yBase: 64 },   // над рекой Есиль
+    { cx: -680, cz: 30, rMin: 60, rMax: 140, yBase: 86 },   // Парк Влюблённых / Круглая площадь
+    { cx: 1080, cz: 40, rMin: 80, rMax: 185, yBase: 76 },   // Президентский парк
+  ];
+  const birds = [];
+  for (let i = 0; i < birdCount; i++) {
+    const fl = flocks[i % flocks.length];
+    birds.push({
+      cx: fl.cx + between(r, -25, 25),
+      cz: fl.cz + between(r, -25, 25),
+      rad: between(r, fl.rMin, fl.rMax),
+      y: fl.yBase + between(r, -16, 26),
+      a0: r() * Math.PI * 2,
+      spd: between(r, 0.18, 0.34) * (i % 2 === 0 ? 1 : -1),
+      ph: r() * Math.PI * 2,
+    });
+  }
+
+  const droneCount = 34;
+  const droneBodyGeo = merge([
+    new THREE.CylinderGeometry(0.65, 0.75, 0.35, 8),
+    new THREE.BoxGeometry(1.9, 0.08, 0.28),
+    new THREE.BoxGeometry(0.28, 0.08, 1.9),
+  ]);
+  const droneRingGeo = new THREE.TorusGeometry(0.55, 0.08, 6, 12).rotateX(Math.PI / 2).translate(0, -0.18, 0);
+  const droneBodyMesh = new THREE.InstancedMesh(droneBodyGeo, M.darkMetal, droneCount);
+  const droneGlowMesh = new THREE.InstancedMesh(droneRingGeo, M.neon(0x00f5ff, 6.2, 0.2), droneCount);
+  droneBodyMesh.frustumCulled = droneGlowMesh.frustumCulled = false;
+  droneBodyMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  droneGlowMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  group.add(droneBodyMesh, droneGlowMesh);
+
+  const drones = [];
+  for (let i = 0; i < droneCount; i++) {
+    drones.push({
+      x0: between(r, -780, 560),
+      z0: between(r, -220, 260),
+      rx: between(r, 45, 160),
+      rz: between(r, 20, 85),
+      y: between(r, 20, 68),
+      spd: between(r, 0.25, 0.55) * (i % 2 === 0 ? 1 : -1),
+      ph: r() * Math.PI * 2,
+    });
+  }
 
   return {
     group,
@@ -660,9 +804,58 @@ export function buildStreetLife(scene, M, _ctx, buildings = []) {
       parkedCars: parked.length,
       busStops: stopMats.length,
       pedestrians: peds.length,
+      cranes: cranes.length,
     },
-    update(_dt, time) {
+    update(_dt, time, _cam, cyberMix) {
       updatePeds(time);
+      const foliageBounce = 0.44 * (1.0 - U.uNight.value * 0.88);
+      for (let i = 0; i < foliageMats.length; i++) foliageMats[i].emissiveIntensity = foliageBounce;
+
+      // Медленное вращение башенных кранов + мигание красных авиамаяков
+      const beaconPulse = (Math.sin(time * 3.8) > 0.15) ? (4.0 + U.uNight.value * 5.0) : 0.25;
+      craneRedBeaconMat.color.setHex(0xff1e14).multiplyScalar(beaconPulse);
+      for (let i = 0; i < cranes.length; i++) {
+        const cr = cranes[i];
+        cr.boom.rotation.y = cr.phase + Math.sin(time * 0.08 + cr.phase) * 0.85;
+      }
+
+      // Птицы днём/на закате; городские дроны в режиме Cyberpunk 2077
+      const isCyber = (cyberMix || U.uCyber.value) >= 0.45;
+      birdMesh.visible = !isCyber;
+      droneBodyMesh.visible = droneGlowMesh.visible = isCyber;
+
+      if (!isCyber) {
+        for (let i = 0; i < birds.length; i++) {
+          const b = birds[i];
+          const a = b.a0 + b.spd * time;
+          const x = b.cx + Math.cos(a) * b.rad;
+          const z = b.cz + Math.sin(a) * b.rad;
+          const y = b.y + Math.sin(time * 1.4 + b.ph) * 2.2;
+          const dir = Math.sign(b.spd);
+          const yaw = Math.atan2(-Math.sin(a) * dir, Math.cos(a) * dir);
+          const flap = 0.72 + 0.45 * Math.sin(time * 9.5 + b.ph);
+          _q.setFromAxisAngle(UPV, yaw);
+          _m.compose(_p.set(x, y, z), _q, _s.set(1.0, flap, 1.0));
+          birdMesh.setMatrixAt(i, _m);
+        }
+        birdMesh.instanceMatrix.needsUpdate = true;
+      } else {
+        _s.set(1, 1, 1);
+        for (let i = 0; i < drones.length; i++) {
+          const d = drones[i];
+          const a = d.ph + d.spd * time;
+          const x = d.x0 + Math.cos(a) * d.rx;
+          const z = d.z0 + Math.sin(a) * d.rz;
+          const y = d.y + Math.sin(time * 2.0 + d.ph) * 1.6;
+          const yaw = Math.atan2(-Math.sin(a) * d.rx * d.spd, Math.cos(a) * d.rz * d.spd);
+          _q.setFromAxisAngle(UPV, yaw);
+          _m.compose(_p.set(x, y, z), _q, _s);
+          droneBodyMesh.setMatrixAt(i, _m);
+          droneGlowMesh.setMatrixAt(i, _m);
+        }
+        droneBodyMesh.instanceMatrix.needsUpdate = true;
+        droneGlowMesh.instanceMatrix.needsUpdate = true;
+      }
     },
   };
 }

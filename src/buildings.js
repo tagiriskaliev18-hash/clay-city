@@ -18,31 +18,56 @@ import { rng, between, place, merge, GB, rect, polyWalls, polyCap, Archetype } f
 function makeGlassTower(M, glassMat, trimMat, name) {
   const mkMain = (detail) => {
     const B = new GB();
-    polyWalls(B, rect(1.0, 1.0), 0, 0.16);
+    polyWalls(B, rect(0.92, 0.92), 0, 0.16);
     polyWalls(B, rect(0.90, 0.90), 0.16, 0.72);
     polyWalls(B, rect(0.76, 0.76), 0.72, 0.94);
-    if (detail > 0) polyWalls(B, rect(0.54, 0.54), 0.94, 1.0);
+    if (detail > 0) polyWalls(B, rect(0.56, 0.56), 0.94, 1.0);
     return B.build();
   };
   const mkRoof = () => {
     const B = new GB();
-    polyCap(B, rect(1.0, 1.0), 0.16, true);
+    polyCap(B, rect(0.98, 0.98), 0.16, true);
     polyCap(B, rect(0.90, 0.90), 0.72, true);
     polyCap(B, rect(0.76, 0.76), 0.94, true);
-    polyCap(B, rect(0.54, 0.54), 1.0, true);
+    polyCap(B, rect(0.56, 0.56), 1.0, true);
     return B.build();
   };
   const mkTrim = (detail) => {
     const B = new GB();
-    B.box(0, 0.165, 0, 1.03, 0.016, 1.03);
-    B.box(0, 0.725, 0, 0.93, 0.016, 0.93);
-    B.box(0, 0.945, 0, 0.79, 0.018, 0.79);
-    if (detail === 2) {
-      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-        B.box(sx * 0.45, 0.45, sz * 0.45, 0.045, 0.56, 0.045);
+    // Podium cornice + setback mechanical spandrel belts
+    B.box(0, 0.165, 0, 1.04, 0.020, 1.04);
+    B.box(0, 0.725, 0, 0.94, 0.020, 0.94);
+    B.box(0, 0.945, 0, 0.80, 0.022, 0.80);
+    if (detail >= 1) {
+      // Podium arcade colonnade pillars
+      for (const p of [-0.46, -0.16, 0.16, 0.46]) {
+        B.box(p, 0.08, +0.48, 0.045, 0.16, 0.045);
+        B.box(p, 0.08, -0.48, 0.045, 0.16, 0.045);
       }
-      B.box(0, 1.025, 0, 0.28, 0.05, 0.28);
-      B.box(0, 1.10, 0, 0.022, 0.14, 0.022);
+      for (const p of [-0.16, 0.16]) {
+        B.box(+0.48, 0.08, p, 0.045, 0.16, 0.045);
+        B.box(-0.48, 0.08, p, 0.045, 0.16, 0.045);
+      }
+    }
+    if (detail === 2) {
+      // Corner structural fins + vertical mullion ribs on main shaft
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        B.box(sx * 0.455, 0.44, sz * 0.455, 0.048, 0.56, 0.048);
+      }
+      for (const r of [-0.24, 0, 0.24]) {
+        B.box(r, 0.44, +0.46, 0.028, 0.55, 0.032);
+        B.box(r, 0.44, -0.46, 0.028, 0.55, 0.032);
+        B.box(+0.46, 0.44, r, 0.032, 0.55, 0.028);
+        B.box(-0.46, 0.44, r, 0.032, 0.55, 0.028);
+      }
+      // Roof parapet rim + mechanical penthouse + HVAC louvers + spire
+      B.box(0, 1.005, +0.28, 0.58, 0.018, 0.025);
+      B.box(0, 1.005, -0.28, 0.58, 0.018, 0.025);
+      B.box(+0.28, 1.005, 0, 0.025, 0.018, 0.58);
+      B.box(-0.28, 1.005, 0, 0.025, 0.018, 0.58);
+      B.box(0, 1.028, 0, 0.34, 0.056, 0.32);
+      B.box(-0.18, 1.015, +0.16, 0.10, 0.03, 0.10);
+      B.box(0, 1.105, 0, 0.020, 0.14, 0.020);
     }
     return B.build();
   };
@@ -57,7 +82,7 @@ function makeGlassTower(M, glassMat, trimMat, name) {
 function makeSandstoneClassic(M) {
   const mkMain = () => {
     const B = new GB();
-    polyWalls(B, rect(1.0, 1.0), 0, 0.20);
+    polyWalls(B, rect(0.94, 0.94), 0, 0.20);
     polyWalls(B, rect(0.96, 0.94), 0.20, 0.88);
     polyWalls(B, rect(0.84, 0.80), 0.88, 1.0);
     return B.build();
@@ -71,17 +96,33 @@ function makeSandstoneClassic(M) {
   };
   const mkTrim = (detail) => {
     const B = new GB();
-    B.box(0, 0.205, 0, 1.04, 0.024, 1.04);
-    B.box(0, 0.888, 0, 1.02, 0.030, 1.00);
-    B.box(0, 1.008, 0, 0.88, 0.022, 0.84);
-    if (detail === 2) {
-      // Вертикальные классические пилястры и крышные тумбы
-      for (const px of [-0.42, -0.14, 0.14, 0.42]) {
-        B.box(px, 0.54, +0.48, 0.055, 0.68, 0.035);
-        B.box(px, 0.54, -0.48, 0.055, 0.68, 0.035);
+    // Podium cornice, mid-height stringcourse, deep upper entablature & attic cornice
+    B.box(0, 0.205, 0, 1.04, 0.026, 1.04);
+    B.box(0, 0.54, 0, 0.99, 0.014, 0.97);
+    B.box(0, 0.888, 0, 1.03, 0.032, 1.01);
+    B.box(0, 1.008, 0, 0.89, 0.024, 0.85);
+    if (detail >= 1) {
+      // Podium arcade colonnade
+      for (const px of [-0.46, -0.16, 0.16, 0.46]) {
+        B.box(px, 0.10, +0.49, 0.055, 0.20, 0.055);
+        B.box(px, 0.10, -0.49, 0.055, 0.20, 0.055);
       }
-      B.box(-0.24, 1.03, 0, 0.16, 0.05, 0.24);
-      B.box(+0.24, 1.03, 0, 0.16, 0.05, 0.24);
+    }
+    if (detail === 2) {
+      // Classical vertical pilasters on all 4 facades
+      for (const px of [-0.42, -0.14, 0.14, 0.42]) {
+        B.box(px, 0.54, +0.485, 0.058, 0.68, 0.042);
+        B.box(px, 0.54, -0.485, 0.058, 0.68, 0.042);
+      }
+      for (const pz of [-0.36, 0, 0.36]) {
+        B.box(+0.495, 0.54, pz, 0.042, 0.68, 0.058);
+        B.box(-0.495, 0.54, pz, 0.042, 0.68, 0.058);
+      }
+      // Roof balustrade parapet + classical mechanical penthouses
+      B.box(0, 1.028, +0.40, 0.86, 0.024, 0.03);
+      B.box(0, 1.028, -0.40, 0.86, 0.024, 0.03);
+      B.box(-0.24, 1.035, 0, 0.18, 0.058, 0.26);
+      B.box(+0.24, 1.035, 0, 0.18, 0.058, 0.26);
     }
     return B.build();
   };
@@ -96,29 +137,45 @@ function makeSandstoneClassic(M) {
 function makeModernRes(M, bodyMat, accentMat, name) {
   const mkMain = () => {
     const B = new GB();
-    polyWalls(B, rect(1.0, 1.0), 0, 0.15);
+    polyWalls(B, rect(0.92, 0.92), 0, 0.15);
     polyWalls(B, rect(0.90, 0.90), 0.15, 0.95);
     return B.build();
   };
   const mkRoof = () => {
     const B = new GB();
-    polyCap(B, rect(1.0, 1.0), 0.15, true);
+    polyCap(B, rect(0.98, 0.98), 0.15, true);
     polyCap(B, rect(0.90, 0.90), 0.95, true);
     return B.build();
   };
   const mkCrown = (detail) => {
     const B = new GB();
-    B.box(0, 0.155, 0, 1.03, 0.022, 1.03);
-    B.box(0, 0.962, 0, 0.94, 0.036, 0.94);
-    if (detail === 2) {
-      // Утопленные балконные секции / вертикальные простенки + пентхаус + HVAC
-      for (const sx of [-0.40, +0.40]) B.box(sx, 0.55, 0, 0.06, 0.80, 0.94);
-      for (const bx of [-0.18, +0.18]) {
-        B.box(bx, 0.55, +0.46, 0.14, 0.78, 0.04);
-        B.box(bx, 0.55, -0.46, 0.14, 0.78, 0.04);
+    B.box(0, 0.155, 0, 1.04, 0.024, 1.04);
+    B.box(0, 0.962, 0, 0.95, 0.036, 0.95);
+    if (detail >= 1) {
+      // Ground-floor retail arcade columns
+      for (const sx of [-0.46, -0.16, 0.16, 0.46]) {
+        B.box(sx, 0.075, +0.48, 0.048, 0.15, 0.048);
+        B.box(sx, 0.075, -0.48, 0.048, 0.15, 0.048);
       }
-      B.box(0, 1.01, 0, 0.34, 0.07, 0.36);
-      B.box(+0.26, 0.995, -0.18, 0.12, 0.04, 0.16);
+    }
+    if (detail === 2) {
+      // Vertical framing piers + protruding staggered balconies on all sides
+      for (const sx of [-0.41, +0.41]) B.box(sx, 0.55, 0, 0.065, 0.80, 0.95);
+      for (const bx of [-0.20, +0.20]) {
+        B.box(bx, 0.55, +0.465, 0.07, 0.78, 0.045);
+        B.box(bx, 0.55, -0.465, 0.07, 0.78, 0.045);
+      }
+      for (const by of [0.27, 0.43, 0.59, 0.75, 0.89]) {
+        B.box(0, by, +0.475, 0.68, 0.018, 0.075);
+        B.box(0, by, -0.475, 0.68, 0.018, 0.075);
+        B.box(+0.475, by, 0, 0.075, 0.018, 0.54);
+        B.box(-0.475, by, 0, 0.075, 0.018, 0.54);
+      }
+      // Roof parapet rim + mechanical penthouse + HVAC
+      B.box(0, 0.99, +0.45, 0.92, 0.024, 0.03);
+      B.box(0, 0.99, -0.45, 0.92, 0.024, 0.03);
+      B.box(0, 1.015, 0, 0.36, 0.075, 0.36);
+      B.box(+0.26, 1.00, -0.20, 0.13, 0.045, 0.16);
     }
     return B.build();
   };
@@ -143,8 +200,13 @@ function makeSovietPanel(M) {
   };
   const mkDetail = (detail) => {
     const B = new GB();
-    B.box(0, 0.975, 0, 1.03, 0.03, 1.03);
+    B.box(0, 0.975, 0, 1.04, 0.032, 1.04);
     if (detail === 2) {
+      // Protruding stacked loggia/balcony fins + rooftop elevator machine rooms
+      for (const bx of [-0.26, +0.26]) {
+        B.box(bx, 0.54, +0.51, 0.18, 0.72, 0.045);
+        B.box(bx, 0.54, -0.51, 0.18, 0.72, 0.045);
+      }
       B.box(-0.26, 1.015, 0, 0.16, 0.07, 0.28);
       B.box(+0.26, 1.015, 0, 0.16, 0.07, 0.28);
       B.box(0, 1.07, 0, 0.015, 0.11, 0.015);
@@ -162,7 +224,8 @@ function makeSovietPanel(M) {
 function makeCommercialRow(M) {
   const mkMain = () => {
     const B = new GB();
-    polyWalls(B, rect(1.0, 1.0), 0, 0.94);
+    polyWalls(B, rect(0.94, 0.94), 0, 0.32);
+    polyWalls(B, rect(1.0, 1.0), 0.32, 0.94);
     return B.build();
   };
   const mkRoof = () => {
@@ -172,10 +235,15 @@ function makeCommercialRow(M) {
   };
   const mkCrown = (detail) => {
     const B = new GB();
-    B.box(0, 0.965, 0, 1.04, 0.05, 1.04);
+    B.box(0, 0.325, 0, 1.04, 0.028, 1.04);
+    B.box(0, 0.965, 0, 1.05, 0.05, 1.05);
     if (detail === 2) {
-      B.box(-0.25, 1.01, 0, 0.14, 0.05, 0.22);
-      B.box(+0.22, 1.01, -0.1, 0.16, 0.05, 0.18);
+      for (const px of [-0.46, -0.16, 0.16, 0.46]) {
+        B.box(px, 0.16, +0.485, 0.048, 0.32, 0.048);
+        B.box(px, 0.16, -0.485, 0.048, 0.32, 0.048);
+      }
+      B.box(-0.25, 1.015, 0, 0.16, 0.055, 0.24);
+      B.box(+0.22, 1.015, -0.1, 0.18, 0.055, 0.20);
     }
     return B.build();
   };
@@ -272,14 +340,14 @@ function pickSpec(dist, r, isRoadside = false) {
     kind = u < 0.45 ? "terracottaRes" : u < 0.78 ? "creamRes" : u < 0.92 ? "sandstoneClassic" : "blueTower";
     hMin = 28; hMax = 68;
     tint = kind === "terracottaRes"
-      ? [1.02, 0.84, 0.76]
-      : [0.96, 0.94, 0.89];
+      ? [0.94, 0.87, 0.80]
+      : [0.95, 0.93, 0.88];
   } else if (dist === "residential") {
     const u = r();
     kind = u < 0.44 ? "terracottaRes" : u < 0.82 ? "creamRes" : "sovietPanel";
     hMin = 26; hMax = 60;
     tint = kind === "terracottaRes"
-      ? [1.0, 0.86, 0.78]
+      ? [0.94, 0.88, 0.81]
       : [0.95, 0.92, 0.88];
   } else {
     // Правый берег + среднеэтажные кварталы
@@ -317,7 +385,10 @@ export function buildBuildings(scene, M, ctx) {
   scene.add(group);
 
   const r = rng(202608);
-  const terracottaTrimMat = M.std({ color: 0xb86d52, roughness: 0.62, metalness: 0.04 });
+  const terracottaTrimMat = M.std({
+    map: M.travertine.map, normalMap: M.travertine.normalMap, roughnessMap: M.travertine.roughnessMap,
+    color: 0xc9947c, roughness: 0.84, metalness: 0.04, envMapIntensity: 0.85,
+  });
 
   const archMap = {
     blueTower:        makeGlassTower(M, M.glassBlue, M.steel, "blueTower"),
@@ -444,8 +515,12 @@ export function buildBuildings(scene, M, ctx) {
     winInst.frustumCulled = false;
     group.add(winInst);
 
+    const awGeo = merge([
+      new THREE.BoxGeometry(1, 0.36, 0.85).rotateX(0.32),
+      new THREE.BoxGeometry(1, 0.65, 0.08).translate(0, -0.22, 0.44),
+    ]);
     const awMat = M.std({ color: 0xffffff, roughness: 0.72, metalness: 0.05 });
-    const awInst = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), awMat, awningMats.length);
+    const awInst = new THREE.InstancedMesh(awGeo, awMat, awningMats.length);
     const tmpC = new THREE.Color();
     awningMats.forEach((m, i) => {
       awInst.setMatrixAt(i, m);

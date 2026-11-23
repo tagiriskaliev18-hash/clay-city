@@ -10,7 +10,7 @@
 // ВСЁ скрыто при cyberMode = false, появляется по клавише F.
 // ============================================================
 import * as THREE from "three";
-import { rng, between, place, merge } from "./geom.js";
+import { rng, between, place, merge, GB } from "./geom.js";
 import { REG } from "./materials.js";
 import { U } from "./env.js";
 import { LANDMARKS } from "./config.js";
@@ -27,15 +27,17 @@ function buildInstanced(parent, geo, mat, matrices, { cast = false, receive = fa
   return mesh;
 }
 
-// ---------- MEGA-TOWER GEOMETRY (детерминированная + экзоскелет + турбины) ----------
+// ---------- MEGA-TOWER GEOMETRY (реальный PBR витраж + стальной каркас + без угловых палок) ----------
 function buildMegaTowerParts(r, w, d, h, sections, ribCount) {
-  const hullGeos = [];
+  const glassB = new GB();
+  const frameB = new GB();
   const accentGeos = [];
+  const sectionsMeta = [];
   let y = 0;
   const weights = [];
   let wSum = 0;
   for (let s = 0; s < sections; s++) {
-    const wt = (sections - s * 0.45) * (0.85 + r() * 0.3);
+    const wt = (sections - s * 0.42) * (0.88 + r() * 0.24);
     weights.push(wt);
     wSum += wt;
   }
@@ -43,58 +45,48 @@ function buildMegaTowerParts(r, w, d, h, sections, ribCount) {
     const sH = (weights[s] / wSum) * h;
     const stepback = 1 - s * 0.085;
     const sw = w * stepback, sd = d * stepback;
+    const y0 = y, y1 = y + sH;
+    sectionsMeta.push({ y0, y1, sw, sd });
 
-    // Основной ступенчатый блок
-    hullGeos.push(new THREE.BoxGeometry(sw, sH, sd).translate(0, y + sH / 2, 0));
+    // Основной стеклянный витраж секции с UV в метрах (M.glassBlue / M.glass)
+    glassB.box(0, y0 + sH * 0.5, 0, sw, sH, sd, 0);
 
-    // Диагональные контрфорсы / экзоскелет на углах
-    if (s < sections - 1 && ribCount > 0) {
+    // Аккуратные тёмно-стальные угловые пилоны и пояса межсекционных перекрытий
+    if (ribCount > 0) {
       for (const sx of [-1, 1]) {
         for (const sz of [-1, 1]) {
-          const rib = new THREE.BoxGeometry(3.4, sH * 0.92, 3.4);
-          rib.rotateY(Math.PI / 4);
-          rib.translate(sx * (sw * 0.5 + 1.1), y + sH * 0.5, sz * (sd * 0.5 + 1.1));
-          hullGeos.push(rib);
-          // Вертикальная светящаяся неоновая полоса на пилоне
-          accentGeos.push(
-            new THREE.BoxGeometry(0.9, sH * 0.88, 0.9)
-              .translate(sx * (sw * 0.5 + 2.4), y + sH * 0.5, sz * (sd * 0.5 + 2.4))
-          );
+          frameB.box(sx * (sw * 0.5 - 0.6), y0 + sH * 0.5, sz * (sd * 0.5 - 0.6), 2.8, sH, 2.8, 0);
         }
       }
     }
-
-    // Горизонтальные светящиеся технические ярусы (как в Найт-Сити)
     if (s > 0) {
-      accentGeos.push(new THREE.BoxGeometry(sw + 4.5, 1.4, 0.9).translate(0, y + 0.8, sd * 0.5 + 0.5));
-      accentGeos.push(new THREE.BoxGeometry(sw + 4.5, 1.4, 0.9).translate(0, y + 0.8, -sd * 0.5 - 0.5));
-      accentGeos.push(new THREE.BoxGeometry(0.9, 1.4, sd + 4.5).translate(sw * 0.5 + 0.5, y + 0.8, 0));
-      accentGeos.push(new THREE.BoxGeometry(0.9, 1.4, sd + 4.5).translate(-sw * 0.5 - 0.5, y + 0.8, 0));
+      frameB.box(0, y0 + 1.1, 0, sw + 2.4, 2.2, sd + 2.4, 0);
+      // Тонкие горизонтальные неоновые линии строго по краю тех-пояса (не пересекают вывески!)
+      accentGeos.push(new THREE.BoxGeometry(sw + 2.8, 0.55, 0.45).translate(0, y0 + 1.1, sd * 0.5 + 1.25));
+      accentGeos.push(new THREE.BoxGeometry(sw + 2.8, 0.55, 0.45).translate(0, y0 + 1.1, -sd * 0.5 - 1.25));
+      accentGeos.push(new THREE.BoxGeometry(0.45, 0.55, sd + 2.8).translate(sw * 0.5 + 1.25, y0 + 1.1, 0));
+      accentGeos.push(new THREE.BoxGeometry(0.45, 0.55, sd + 2.8).translate(-sw * 0.5 - 1.25, y0 + 1.1, 0));
     }
 
-    // Оконные светящиеся пояса на секции
-    const bandCount = Math.max(2, Math.floor(sH / 24));
-    for (let b = 1; b <= bandCount; b++) {
-      if (r() < 0.35) continue;
-      const by = y + (b / (bandCount + 1)) * sH;
-      const bw = sw * (0.45 + r() * 0.38);
-      const bd = sd * (0.45 + r() * 0.38);
-      accentGeos.push(new THREE.BoxGeometry(bw, 1.1, 0.5).translate(0, by, sd * 0.5 + 0.35));
-      accentGeos.push(new THREE.BoxGeometry(bw, 1.1, 0.5).translate(0, by, -sd * 0.5 - 0.35));
-      accentGeos.push(new THREE.BoxGeometry(0.5, 1.1, bd).translate(sw * 0.5 + 0.35, by, 0));
-      accentGeos.push(new THREE.BoxGeometry(0.5, 1.1, bd).translate(-sw * 0.5 - 0.35, by, 0));
-    }
-
-    y += sH;
+    y = y1;
   }
 
-  // Крышная градирня/турбина + helipad
+  // Крышная корона, парапет, градирня и helipad
   const topW = w * (1 - (sections - 1) * 0.085);
-  hullGeos.push(new THREE.CylinderGeometry(topW * 0.16, topW * 0.21, h * 0.055, 12).translate(-topW * 0.2, y + h * 0.027, 0));
-  hullGeos.push(new THREE.CylinderGeometry(topW * 0.24, topW * 0.24, 1.8, 16).translate(topW * 0.16, y + 0.9, 0));
-  accentGeos.push(new THREE.TorusGeometry(topW * 0.21, 0.55, 6, 20).rotateX(Math.PI / 2).translate(topW * 0.16, y + 2.0, 0));
+  const topD = d * (1 - (sections - 1) * 0.085);
+  frameB.box(0, y + 1.2, 0, topW + 1.6, 2.4, topD + 1.6, 0);
+  frameB.box(0, y + 6.0, 0, topW * 0.42, 7.5, topD * 0.42, 0);
+  const crownCooler = new THREE.CylinderGeometry(topW * 0.14, topW * 0.19, h * 0.045, 12).translate(-topW * 0.22, y + h * 0.022, 0);
+  const helipad = new THREE.CylinderGeometry(topW * 0.22, topW * 0.22, 1.4, 16).translate(topW * 0.16, y + 1.8, 0);
+  accentGeos.push(new THREE.TorusGeometry(topW * 0.19, 0.45, 6, 20).rotateX(Math.PI / 2).translate(topW * 0.16, y + 2.7, 0));
 
-  return { hull: merge(hullGeos), accent: merge(accentGeos), topY: y };
+  return {
+    glass: glassB.build(),
+    frame: merge([frameB.build(), crownCooler, helipad]),
+    accent: merge(accentGeos),
+    topY: y,
+    sectionsMeta,
+  };
 }
 
 // ---------- NEON SIGN CANVAS ----------
@@ -252,22 +244,30 @@ export function buildCyberpunk(scene, M, _ctx, buildings = []) {
     { x: +920,  z: +790, w: 86, d: 80, h: 620, sections: 7, ribs: 4, col: 0x7B2FF7 },
   ];
 
-  const megaMat = M.std({ color: 0x161a24, roughness: 0.44, metalness: 0.78, envMapIntensity: 1.1 });
+  const megaGlassMats = [M.glassBlue, M.glass, M.glassEmerald];
   const megaAccentMats = new Map();
   const getAccentMat = (hex) => {
     if (!megaAccentMats.has(hex)) megaAccentMats.set(hex, M.neon(hex, 4.4, 0.0));
     return megaAccentMats.get(hex);
   };
 
-  for (const mt of megaTowers) {
+  for (let idx = 0; idx < megaTowers.length; idx++) {
+    const mt = megaTowers[idx];
     const parts = buildMegaTowerParts(r, mt.w, mt.d, mt.h, mt.sections, mt.ribs);
     mt.topY = parts.topY;
+    mt.sectionsMeta = parts.sectionsMeta;
 
-    const mesh = new THREE.Mesh(parts.hull, megaMat);
-    mesh.position.set(mt.x, 0, mt.z);
-    mesh.castShadow = true; mesh.receiveShadow = true;
-    mesh.name = `mega-tower-${mt.x}`;
-    group.add(mesh);
+    const glassMesh = new THREE.Mesh(parts.glass, megaGlassMats[idx % megaGlassMats.length]);
+    glassMesh.position.set(mt.x, 0, mt.z);
+    glassMesh.castShadow = true; glassMesh.receiveShadow = true;
+    glassMesh.name = `mega-tower-glass-${idx}`;
+    group.add(glassMesh);
+
+    const frameMesh = new THREE.Mesh(parts.frame, M.darkMetal);
+    frameMesh.position.set(mt.x, 0, mt.z);
+    frameMesh.castShadow = true; frameMesh.receiveShadow = true;
+    frameMesh.name = `mega-tower-frame-${idx}`;
+    group.add(frameMesh);
 
     const acc = new THREE.Mesh(parts.accent, getAccentMat(mt.col));
     acc.position.set(mt.x, 0, mt.z);
@@ -314,41 +314,54 @@ export function buildCyberpunk(scene, M, _ctx, buildings = []) {
   }
   const sharedPlane = new THREE.PlaneGeometry(1, 1);
 
-  // Крупные вывески на мегабашнях (со всех сторон, смотрят в центр города)
+  // Крупные вывески на мегабашнях — монтируются строго по нормали плоской грани секции с тёмным коробом, ZERO clipping!
+  const signCabinetGeo = new THREE.BoxGeometry(1, 1, 0.9);
+  const megaCabinetMats = [];
   for (const mt of megaTowers) {
-    const toCenterYaw = Math.atan2(-mt.x, -mt.z);
-    for (let s = 0; s < 3; s++) {
+    const secs = mt.sectionsMeta || [];
+    if (!secs.length) continue;
+    const dirZ = mt.z > 0 ? -1 : 1;
+    const dirX = mt.x > 0 ? -1 : 1;
+
+    // Горизонтальные вывески строго по центру выбранной секции на грани ±Z
+    const hSecIndices = [1, Math.min(secs.length - 1, 3)].filter((i, k, a) => i < secs.length && a.indexOf(i) === k);
+    for (const si of hSecIndices) {
+      const sec = secs[si];
+      const secH = sec.y1 - sec.y0;
+      const signW = Math.min(sec.sw * 0.64, between(r, 34, 52));
+      const signH = signW * 0.31;
+      if (secH < signH + 6) continue;
+      const signY = (sec.y0 + sec.y1) * 0.5;
+      const outZ = sec.sd * 0.5 + 0.95;
+      const yawZ = dirZ > 0 ? 0 : Math.PI;
       const mat = hSignPool[Math.floor(r() * hSignPool.length)];
-      const signW = between(r, 42, 68), signH = signW * 0.31;
-      const signY = mt.h * (0.28 + s * 0.24);
-      const offset = Math.max(mt.w, mt.d) * 0.56;
       const signMesh = new THREE.Mesh(sharedPlane, mat);
       signMesh.scale.set(signW, signH, 1);
-      signMesh.position.set(
-        mt.x + Math.sin(toCenterYaw) * offset,
-        signY,
-        mt.z + Math.cos(toCenterYaw) * offset
-      );
-      signMesh.rotation.y = toCenterYaw;
+      signMesh.position.set(mt.x, signY, mt.z + dirZ * (outZ + 0.52));
+      signMesh.rotation.y = yawZ;
       group.add(signMesh);
+      megaCabinetMats.push(place(mt.x, signY, mt.z + dirZ * outZ, yawZ, signW + 1.4, signH + 1.4, 1));
     }
-    // Вертикальные японско-киберпанковые плашки сбоку мегабашен
-    for (const side of [-1, 1]) {
+
+    // Вертикальные вывески строго по центру грани ±X (перпендикулярно горизонтальным)
+    const vSec = secs[Math.min(2, secs.length - 1)];
+    const vSecH = vSec.y1 - vSec.y0;
+    const vSignH = Math.min(vSecH * 0.68, between(r, 56, 86));
+    const vSignW = Math.min(vSec.sd * 0.40, vSignH * 0.26);
+    if (vSecH >= vSignH + 6) {
+      const vSignY = (vSec.y0 + vSec.y1) * 0.5;
+      const outX = vSec.sw * 0.5 + 0.95;
+      const yawX = dirX > 0 ? Math.PI / 2 : -Math.PI / 2;
       const mat = vSignPool[Math.floor(r() * vSignPool.length)];
-      const signH = between(r, 75, 130), signW = signH * 0.26;
-      const sideYaw = toCenterYaw + side * (Math.PI / 2);
-      const offset = Math.max(mt.w, mt.d) * 0.54;
       const signMesh = new THREE.Mesh(sharedPlane, mat);
-      signMesh.scale.set(signW, signH, 1);
-      signMesh.position.set(
-        mt.x + Math.sin(sideYaw) * offset,
-        mt.h * 0.48,
-        mt.z + Math.cos(sideYaw) * offset
-      );
-      signMesh.rotation.y = sideYaw;
+      signMesh.scale.set(vSignW, vSignH, 1);
+      signMesh.position.set(mt.x + dirX * (outX + 0.52), vSignY, mt.z);
+      signMesh.rotation.y = yawX;
       group.add(signMesh);
+      megaCabinetMats.push(place(mt.x + dirX * outX, vSignY, mt.z, yawX, vSignW + 1.2, vSignH + 1.2, 1));
     }
   }
+  if (megaCabinetMats.length) buildInstanced(group, signCabinetGeo, M.darkMetal, megaCabinetMats, { name: "mega-sign-cabinets" });
 
   // Неоновые контуры, 100+ вертикальных блейд-вывесок с кронштейнами и 60+ фасадных билбордов
   if (buildings && buildings.length) {
@@ -357,6 +370,7 @@ export function buildCyberpunk(scene, M, _ctx, buildings = []) {
     const hSignMats = Array.from({ length: hSignPool.length }, () => []);
     const vSignMats = Array.from({ length: vSignPool.length }, () => []);
     const bracketMats = [];
+    const signBackMats = [];
 
     for (let i = 0; i < buildings.length; i++) {
       const b = buildings[i];
@@ -367,58 +381,68 @@ export function buildCyberpunk(scene, M, _ctx, buildings = []) {
       // Неоновые контуры на крышах высоток
       if (b.h > 30 && r() < 0.72) {
         const ci = Math.floor(r() * 3);
-        const topY = b.h * 0.96;
-        const pF = localToWorld(0, topY, b.d * 0.51);
-        const pB = localToWorld(0, topY, -b.d * 0.51);
-        neonBuckets[ci].push(place(pF[0], pF[1], pF[2], b.yaw, b.w * 0.80, 0.55, 0.45));
-        neonBuckets[ci].push(place(pB[0], pB[1], pB[2], b.yaw, b.w * 0.80, 0.55, 0.45));
+        const topY = b.h * 0.95;
+        const pF = localToWorld(0, topY, b.d * 0.44);
+        const pB = localToWorld(0, topY, -b.d * 0.44);
+        neonBuckets[ci].push(place(pF[0], pF[1], pF[2], b.yaw, b.w * 0.65, 0.45, 0.4));
+        neonBuckets[ci].push(place(pB[0], pB[1], pB[2], b.yaw, b.w * 0.65, 0.45, 0.4));
       }
 
-      // 60+ широких горизонтальных неоновых вывесок на фасадах и крышах
+      // 60+ широких горизонтальных неоновых вывесок на фасадах и крышах с тёмным коробом
       if (b.h > 20 && r() < 0.45) {
         const pi = Math.floor(r() * hSignPool.length);
-        const sw = Math.min(b.w * 0.82, 22), sh = sw * 0.31;
+        const sw = Math.min(b.w * 0.62, 18), sh = sw * 0.31;
         const onRoof = b.h < 68 && r() < 0.5;
-        const p = localToWorld(0, onRoof ? (b.h + sh * 0.52) : (b.h * 0.76), b.d * 0.52);
-        hSignMats[pi].push(place(p[0], p[1], p[2], b.yaw, sw, sh, 1));
+        const sy = onRoof ? (b.h + sh * 0.55) : (b.h * 0.48);
+        const outZ = b.d * 0.525;
+        const pCab = localToWorld(0, sy, outZ);
+        const pFace = localToWorld(0, sy, outZ + 0.52);
+        signBackMats.push(place(pCab[0], pCab[1], pCab[2], b.yaw, sw + 0.8, sh + 0.8, 0.85));
+        hSignMats[pi].push(place(pFace[0], pFace[1], pFace[2], b.yaw, sw, sh, 1));
       }
 
-      // 100+ вертикальных неоновых блейд-вывесок с выносными стальными кронштейнами!
+      // 100+ вертикальных неоновых блейд-вывесок с выносными стальными кронштейнами
       if (b.h > 22 && r() < 0.58) {
         const pi = Math.floor(r() * vSignPool.length);
-        const sh = Math.min(b.h * 0.48, 28), sw = sh * 0.27;
+        const sh = Math.min(b.h * 0.42, 24), sw = sh * 0.27;
         const side = r() < 0.5 ? 1 : -1;
-        const offOut = b.w * 0.52 + sw * 0.75;
-        const sy = Math.max(12, b.h * 0.48);
-        const p = localToWorld(side * offOut, sy, b.d * 0.32 * (r() < 0.5 ? 1 : -1));
+        const offOut = b.w * 0.52 + sw * 0.78;
+        const sy = Math.max(12, b.h * 0.46);
+        const p = localToWorld(side * offOut, sy, b.d * 0.25 * (r() < 0.5 ? 1 : -1));
         vSignMats[pi].push(place(p[0], p[1], p[2], b.yaw + (r() < 0.5 ? 0 : Math.PI / 2), sw, sh, 1));
-        // Два металлических кронштейна, крепящих вывеску к фасаду
-        const bp = localToWorld(side * (b.w * 0.50 + sw * 0.38), sy + sh * 0.32, b.d * 0.32 * (r() < 0.5 ? 1 : -1));
-        bracketMats.push(place(bp[0], bp[1], bp[2], b.yaw, sw * 0.78, 0.32, 0.32));
-        bracketMats.push(place(bp[0], bp[1] - sh * 0.64, bp[2], b.yaw, sw * 0.78, 0.32, 0.32));
+        const bp = localToWorld(side * (b.w * 0.48 + sw * 0.38), sy + sh * 0.32, b.d * 0.25 * (r() < 0.5 ? 1 : -1));
+        bracketMats.push(place(bp[0], bp[1], bp[2], b.yaw, sw * 0.82, 0.32, 0.32));
+        bracketMats.push(place(bp[0], bp[1] - sh * 0.64, bp[2], b.yaw, sw * 0.82, 0.32, 0.32));
       }
 
-      // Неоновые кибер-витрины уличного уровня (y = 4.6 м) вдоль главных улиц
+      // Неоновые кибер-витрины уличного уровня (y = 4.9 м)
       if (Math.abs(b.z) < 520 && r() < 0.42) {
         const pi = Math.floor(r() * hSignPool.length);
-        const sw = Math.min(b.w * 0.62, 12), sh = sw * 0.28;
+        const sw = Math.min(b.w * 0.56, 11), sh = sw * 0.28;
         const side = b.z >= 0 ? -1 : 1;
-        const p = localToWorld(0, 4.9, side * (b.d * 0.53));
-        hSignMats[pi].push(place(p[0], p[1], p[2], b.yaw + (side < 0 ? Math.PI : 0), sw, sh, 1));
+        const pCab = localToWorld(0, 4.9, side * (b.d * 0.52));
+        const pFace = localToWorld(0, 4.9, side * (b.d * 0.52 + 0.46));
+        signBackMats.push(place(pCab[0], pCab[1], pCab[2], b.yaw + (side < 0 ? Math.PI : 0), sw + 0.5, sh + 0.5, 0.6));
+        hSignMats[pi].push(place(pFace[0], pFace[1], pFace[2], b.yaw + (side < 0 ? Math.PI : 0), sw, sh, 1));
       }
     }
 
-    // Дополнительные светящиеся уличные кибер-вывески вдоль Достык/Кунаева/Сыганак
+    // Дополнительные светящиеся уличные кибер-вывески вдоль Достык/Кунаева/Сыганак на стальных опорах
     for (let sx = -700; sx <= 500; sx += 48) {
       for (const sz of [-66, +66, +264, +444]) {
         const pi = Math.abs(Math.round(sx + sz)) % hSignPool.length;
-        hSignMats[pi].push(place(sx, 5.2, sz, sz < 0 ? 0 : Math.PI, 10.5, 3.0, 1));
+        const yaw = sz < 0 ? 0 : Math.PI;
+        signBackMats.push(place(sx, 5.2, sz - (sz < 0 ? 0.4 : -0.4), yaw, 11.0, 3.4, 0.55));
+        bracketMats.push(place(sx - 4.2, 2.6, sz - (sz < 0 ? 0.4 : -0.4), 0, 0.28, 5.2, 0.28));
+        bracketMats.push(place(sx + 4.2, 2.6, sz - (sz < 0 ? 0.4 : -0.4), 0, 0.28, 5.2, 0.28));
+        hSignMats[pi].push(place(sx, 5.2, sz, yaw, 10.5, 3.0, 1));
       }
     }
 
     const unitBox = new THREE.BoxGeometry(1, 1, 1);
     neonBuckets.forEach((arr, i) => { if (arr.length) buildInstanced(group, unitBox, neonMats[i], arr, { name: `neon-${i}` }); });
     if (bracketMats.length) buildInstanced(group, unitBox, M.darkMetal, bracketMats, { name: "blade-brackets" });
+    if (signBackMats.length) buildInstanced(group, unitBox, M.darkMetal, signBackMats, { name: "sign-cabinets" });
     hSignMats.forEach((arr, i) => { if (arr.length) buildInstanced(group, sharedPlane, hSignPool[i], arr, { name: `hsign-${i}` }); });
     vSignMats.forEach((arr, i) => { if (arr.length) buildInstanced(group, sharedPlane, vSignPool[i], arr, { name: `vsign-${i}` }); });
   }

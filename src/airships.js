@@ -205,6 +205,7 @@ export function buildAirships(scene, M, ctx) {
   airGroup.visible = false; // скрыт при старте!
   scene.add(airGroup);
 
+  const MAX_AIRSHIPS = 3; // Строго не более 2–3 дирижаблей на всю карту
   const CLASSES = [
     { L: 200, D: 30, n: 1, speed: 14, hero: true },
     { L: 130, D: 22, n: 1, speed: 16, hero: false },
@@ -262,7 +263,7 @@ export function buildAirships(scene, M, ctx) {
   const ships = [];
   const d01 = tier.lod[0] * 0.9, d12 = tier.lod[1];
   CLASSES.forEach((c, ci) => {
-    for (let i = 0; i < c.n; i++) {
+    for (let i = 0; i < c.n && ships.length < MAX_AIRSHIPS; i++) {
       let pts = [];
       let startT = r();
       let spd = c.speed * (0.85 + r() * 0.3) * (r() < 0.5 ? 1 : -1);

@@ -30,7 +30,7 @@ export const PRESETS = {
   night: {
     skyEl: -16, el: 44, az: 150, sunI: 0.09, sunC: "#a2b8ff", hemiS: "#1a2740", hemiG: "#05070b", hemiI: 0.32, envI: 0.28,
     turb: 2, ray: 0.6, mie: 0.002, mieG: 0.8, exp: 0.9, night: 1, fogC: "#0b1420", fogZ: "#04070d", fogD: 0.7, glow: 0,
-    cloudLit: "#263044", cloudShade: "#0b101a", cloudA: 0.42, bloomS: 0.62, bloomT: 0.5, bloomR: 0.6,
+    cloudLit: "#263044", cloudShade: "#0b101a", cloudA: 0.42, bloomS: 0.36, bloomT: 0.88, bloomR: 0.45,
     sat: 1.1, con: 1.06, tint: "#0a2240", tintAmt: 0.3, vignette: 0.4, grain: 0.05, ca: 0.0014,
   },
 };
@@ -90,6 +90,14 @@ function patchSky(sky) {
       .replace("void main() {", `
         uniform float uNight; uniform float uTime; uniform vec3 uSunDir;
         float h31(vec3 p){ p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3)); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+        float n3(vec3 p){
+          vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+          return mix(
+            mix(mix(h31(i), h31(i + vec3(1,0,0)), f.x), mix(h31(i + vec3(0,1,0)), h31(i + vec3(1,1,0)), f.x), f.y),
+            mix(mix(h31(i + vec3(0,0,1)), h31(i + vec3(1,0,1)), f.x), mix(h31(i + vec3(0,1,1)), h31(i + vec3(1,1,1)), f.x), f.y),
+            f.z
+          );
+        }
         void main() {`)
       .replace("gl_FragColor = vec4( retColor, 1.0 );", `
         {
@@ -105,11 +113,12 @@ function patchSky(sky) {
           float tw = 0.6 + 0.4 * sin(uTime * (1.5 + hs * 5.0) + hs * 80.0);
           nightC += mix(vec3(0.75, 0.82, 1.0), vec3(1.0, 0.86, 0.7), step(0.9985, hs)) * star * tw * (0.35 + hs * 3.0) * smoothstep(0.0, 0.25, d.y);
           float band = pow(max(0.0, 1.0 - abs(dot(d, normalize(vec3(0.35, 0.25, -0.9)))) * 3.2), 3.0);
-          nightC += vec3(0.045, 0.055, 0.08) * band * (0.3 + 0.7 * h31(floor(d * 60.0)));
+          float milky = n3(d * 18.0) * 0.65 + n3(d * 42.0) * 0.35;
+          nightC += vec3(0.036, 0.046, 0.072) * band * (0.35 + 0.65 * milky) * smoothstep(0.05, 0.35, y);
           float md = dot(d, uSunDir);
           float moon = smoothstep(0.9999845, 0.9999905, md);
-          float mare = 0.5 + 0.5 * h31(floor(d * 2600.0) + 3.0);
-          nightC += vec3(0.92, 0.94, 1.0) * moon * 2.4 * mare;
+          float mare = 0.55 + 0.45 * n3(d * 320.0 + 3.0);
+          nightC += vec3(0.92, 0.94, 1.0) * moon * 1.9 * mare;
           nightC += vec3(0.35, 0.45, 0.7) * pow(max(md, 0.0), 1200.0) * 0.6;
           retColor = mix(retColor * (1.0 - uNight * 0.85), nightC, uNight);
         }

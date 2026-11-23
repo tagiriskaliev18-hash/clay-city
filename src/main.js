@@ -1,6 +1,8 @@
 // ============================================================
-// CLAY CITY v3 — «ASTANA RING». Сборка сцены, загрузка, пресеты,
+// ASTANA 2077 — Сборка сцены, загрузка, кибер-переключение,
 // кино-маршрут, адаптивное качество, цикл рендера.
+// БАЗОВЫЙ РЕЖИМ: чистая солнечная реалистичная Астана (cyberMode=false).
+// ПО КЛАВИШЕ F: резкий переход в ASTANA 2077 CYBERPUNK.
 // ============================================================
 import * as THREE from "three";
 import { TIERS, detectTier, STATE, ZONES, SIGNATURE, PLATFORMS } from "./config.js";
@@ -8,7 +10,7 @@ import { U, createEnv, PRESET_ORDER } from "./env.js";
 import { setAnisotropy } from "./textures.js";
 import { createMaterials, applyNight } from "./materials.js";
 import { createEffects } from "./effects.js";
-import { createControls, makeCollider } from "./controls.js";
+import { createControls, makeCollider, CAM_VIEWS } from "./controls.js";
 
 const P = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
@@ -26,13 +28,12 @@ let renderer;
 try {
   renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance", stencil: false });
 } catch (e) { showErr("WebGL недоступен: " + e.message); throw e; }
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMapping = THREE.AgXToneMapping;
 renderer.info.autoReset = false;
 renderer.setSize(innerWidth, innerHeight);
 const tierName = detectTier(renderer.getContext());
 const tier = TIERS[tierName];
 STATE.tier = tierName; STATE.tierCfg = tier;
-// масштаб рендера: не больше ~4.4 Мпикс даже на 4K
 const resMax = Math.max(0.75, Math.min(devicePixelRatio || 1, tier.dpr, Math.sqrt(4.4e6 / (innerWidth * innerHeight))));
 renderer.setPixelRatio(resMax);
 $("app").appendChild(renderer.domElement);
@@ -41,8 +42,8 @@ setAnisotropy(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(52, innerWidth / innerHeight, 2, 90000);
 camera.rotation.order = "YXZ";
-camera.position.set(1500, 700, 1500);
-camera.lookAt(0, 150, 0);
+camera.position.set(...CAM_VIEWS.nurzhol.pos);
+camera.lookAt(...CAM_VIEWS.nurzhol.tgt);
 
 const env = createEnv(renderer, scene, camera, tier);
 const M = createMaterials({ csm: env.csm, S: tier.tex });
@@ -51,12 +52,8 @@ fx.setPixelRatio(resMax);
 fx.setSize(innerWidth, innerHeight);
 const ctx = { U, tier, STATE, camera, renderer };
 
-const PRESET_RU = { day: "День", sunset: "Закат", night: "Ночь" };
-const startPreset = PRESET_ORDER.includes(P.get("preset")) ? P.get("preset") : "sunset";
-if (P.has("preset")) env.set(startPreset, 0.001);
-
 // ============================================================
-// Загрузка модулей (каждый может отсутствовать — сцена соберётся без него)
+// Загрузка модулей
 // ============================================================
 const mods = {};
 const norm = (r) => (r && typeof r.update === "function" ? r : Object.assign({ update() {} }, r || {}));
@@ -78,7 +75,14 @@ const steps = [
   ["Киберпанк-слой", async () => { mods.cyberpunk = await load("cyberpunk", "buildCyberpunk", mods.buildings ? mods.buildings.list : []); }],
   ["Фонари, деревья, автомобили", async () => { mods.props = await load("props", "buildProps"); }],
   ["Флот дирижаблей", async () => { mods.airships = await load("airships", "buildAirships"); }],
-  ["Пар и дым", async () => { mods.particles = await load("particles", "buildParticles", { airships: mods.airships, vents: mods.city ? mods.city.vents || [] : [] }); }],
+  ["Частицы", async () => {
+    const cyberVents = mods.cyberpunk && mods.cyberpunk.ventPositions ? mods.cyberpunk.ventPositions : [];
+    const cityVents = mods.city && mods.city.vents ? mods.city.vents : [];
+    mods.particles = await load("particles", "buildParticles", {
+      airships: mods.airships,
+      vents: [...cityVents, ...cyberVents],
+    });
+  }],
 ];
 async function build() {
   for (let i = 0; i < steps.length; i++) {
@@ -86,70 +90,118 @@ async function build() {
     $("loadLabel").textContent = label;
     $("loadBar").style.width = `${(i / steps.length) * 92}%`;
     await tick();
-    try { await fn(); } catch (e) { console.error(`[clay] module failed: ${label}`, e); }
+    try { await fn(); } catch (e) { console.error(`[astana] module failed: ${label}`, e); }
   }
 }
 
 // ============================================================
-// Кино-маршрут: облёт достопримечательностей Астаны
+// Кино-маршрут: облёт реальной оси Нуржол, QazaqGaz, Акорды и Есиля
 // ============================================================
 function cinematicRoute() {
   const v = (x, y, z) => new THREE.Vector3(x, y, z);
   const pos = new THREE.CatmullRomCurve3([
-    v(2150, 840, 1900), v(1500, 540, 1230), v(1180, 340, 560), v(900, 240, 240), v(600, 170, 60),
-    v(190, 128, 160), v(-120, 122, 200), v(-210, 96, 230), v(-430, 210, -110), v(-160, 280, -590),
-    v(330, 210, -250), v(700, 300, -640), v(1150, 260, -640), v(1800, 640, -1250),
+    v(780, 270, 590), v(410, 150, 310), v(135, 92, 295), v(155, 138, 220),
+    v(-210, 175, 165), v(-680, 210, 260), v(-1120, 220, 290), v(-960, 240, -280),
+    v(-340, 215, -310), v(220, 175, -240), v(640, 150, -210), v(1160, 185, -180),
+    v(1220, 210, 240), v(920, 235, 420),
   ], true, "centripetal", 0.5);
   const look = new THREE.CatmullRomCurve3([
-    v(0, 150, 0), v(500, 120, 200), v(776, 110, 0), v(776, 100, 0), v(0, 70, 0),
-    v(0, 92, 0), v(0, 92, 0), v(-286, 40, 0), v(-222, 35, -262), v(250, 150, -260),
-    v(480, 60, -214), v(416, 120, -124), v(1000, 135, -400), v(0, 150, 0),
+    v(0, 85, 0), v(590, 42, 0), v(235, 58, 155), v(0, 82, 0),
+    v(-160, 160, 250), v(-560, 65, 0), v(-940, 75, 0), v(-560, 75, 0),
+    v(0, 85, 0), v(235, 58, 155), v(590, 45, 0), v(1080, 45, 0),
+    v(780, 35, 0), v(235, 58, 155),
   ], true, "centripetal", 0.5);
   return { pos, look };
 }
 
 // ============================================================
-// Управление, HUD
+// Управление, HUD, CYBERPUNK TOGGLE
 // ============================================================
-// коллайдер подключается после построения города (список зданий нужен раньше)
 const collider = { fn: null };
 const controls = createControls(camera, renderer.domElement, {
   collide: (p, v) => { if (collider.fn) collider.fn(p, v); },
 });
-const LANDMARK_H = { bayterek: 105, akOrda: 80, parliament: 48, mosque: 63, museum: 40, pyramid: 76, circus: 40, khanShatyr: 150, abuDhabi: 382, nurAlem: 100, arch: 58 };
-const SIG_H = { emerald1: 210, emerald2: 152, transport: 168, northLights: 120, kmgas: 165, beijing: 126, talan: 160, triumph: 142, moscow: 102, armada: 110, arman: 118 };
+const LANDMARK_H = { bayterek: 105, akorda: 80, akOrda: 80, ministries: 75, qazaqGaz: 86, parliament: 85, mosque: 77, museum: 36, pyramid: 77, circus: 32, khanShatyr: 150, abuDhabi: 320, nurAlem: 100, arch: 22 };
+const SIG_H = { emerald1: 210, emerald2: 156, transportTower: 155, northernLights1: 180, northernLights2: 152, northernLights3: 128, kmgGate: 165, beijingPalace: 115, talan1: 145, talan2: 119, triumphAstana: 142 };
 const platformY = Object.fromEntries(PLATFORMS.map((p) => [p.id, p.y]));
 const extraBoxes = [
   ...ZONES.map((z) => ({ x: z.x, z: z.z, y: platformY[z.plat] || 0, yaw: 0, w: z.hx * 2, d: z.hz * 2, h: LANDMARK_H[z.id] || 40 })),
-  ...SIGNATURE.map((s) => ({ x: s.x, z: s.z, y: platformY[s.plat] || 0, yaw: s.yaw, w: s.hx * 2, d: s.hz * 2, h: SIG_H[s.id] || 120 })),
+  ...SIGNATURE.map((s) => ({ x: s.x, z: s.z, y: platformY[s.plat] || 0, yaw: s.yaw || 0, w: (s.w || s.hx * 2), d: (s.d || s.hz * 2), h: s.h || SIG_H[s.id] || 120 })),
 ];
 
 const overlay = $("overlay"), hud = $("hud"), toastEl = $("toast");
-const fpsVal = $("fpsVal"), resVal = $("resVal"), speedVal = $("speedVal"), presetEl = $("presetName");
+const fpsVal = $("fpsVal"), resVal = $("resVal"), speedVal = $("speedVal");
+const cyberBtn = $("cyberBtn"), cyberLabel = $("cyberLabel");
 let toastTimer = null;
 function toast(msg) {
+  if (!toastEl) return;
   toastEl.textContent = msg; toastEl.classList.add("show");
   clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove("show"), 1800);
 }
-function setPreset(name, seconds = 3.4) {
-  env.set(name, seconds);
-  presetEl.textContent = PRESET_RU[name] || name;
-  document.body.dataset.preset = name;
-  toast(`Освещение: ${PRESET_RU[name] || name}`);
+
+// ---------- CYBER MODE TOGGLE ----------
+let cyberMode = false;
+const brandSub = document.querySelector("#brand span");
+function setCyber(on, instant = false) {
+  cyberMode = !!on;
+  env.setCyber(cyberMode, instant ? 0.001 : 0.65);
+  if (!instant) fx.flashGlitch(); // ударная неоновая вспышка при живом нажатии F
+  // Показать/скрыть кибер-слой и дирижабли
+  if (mods.cyberpunk && mods.cyberpunk.setCyber) mods.cyberpunk.setCyber(cyberMode);
+  if (mods.airships && mods.airships.setCyber) mods.airships.setCyber(cyberMode);
+  // HUD update
+  if (cyberBtn) {
+    if (cyberMode) {
+      cyberBtn.classList.add("active");
+      cyberBtn.innerHTML = '<kbd>F</kbd> РЕАЛЬНАЯ АСТАНА';
+    } else {
+      cyberBtn.classList.remove("active");
+      cyberBtn.innerHTML = '<kbd>F</kbd> CYBERPUNK 2077';
+    }
+  }
+  if (brandSub) brandSub.textContent = cyberMode ? "2077 · CYBER" : "РЕАЛЬНАЯ";
+  document.body.dataset.cyber = cyberMode ? "1" : "0";
+  if (!instant) toast(cyberMode ? "ASTANA 2077 · CYBER-STEAMPUNK" : "Реальная Астана · день");
 }
+
+function setActiveViewBtn(name) {
+  document.querySelectorAll("[data-cam]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.cam === name);
+  });
+}
+
+// Глобальные хуки для автотестов
+window.__setCyber = (bool, instant = false) => setCyber(!!bool, instant);
+window.__setCam = (name, instant = false) => {
+  controls.goToView(name, instant);
+  setActiveViewBtn(name);
+};
+
+// Keyboard handlers
 addEventListener("keydown", (e) => {
   if (e.repeat) return;
-  if (e.code === "KeyF") setPreset(env.next());
-  if (e.code === "Digit1") setPreset("sunset");
-  if (e.code === "Digit2") setPreset("night");
-  if (e.code === "Digit3") setPreset("day");
+  if (e.code === "KeyF" && !e.target.closest("input, textarea")) {
+    setCyber(!cyberMode);
+  }
   if (e.code === "KeyC") {
     if (controls.cinematic) { controls.exitCinematic(); toast("Свободный полёт"); }
     else { controls.enterCinematic(); toast("Кино-режим · любая клавиша движения — выход"); }
   }
   if (e.code === "KeyH") hud.classList.toggle("off");
 });
-env.next = ((orig) => function (s) { const next = PRESET_ORDER[(PRESET_ORDER.indexOf(env.current) + 1) % PRESET_ORDER.length]; this.set(next, s); return next; })(env.next);
+
+// HUD button clicks
+if (cyberBtn) cyberBtn.addEventListener("click", () => setCyber(!cyberMode));
+
+// Camera view buttons
+document.querySelectorAll("[data-cam]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const name = btn.dataset.cam;
+    controls.goToView(name, false);
+    setActiveViewBtn(name);
+    toast(CAM_VIEWS[name] ? CAM_VIEWS[name].label : name);
+  });
+});
 
 overlay.addEventListener("click", () => {
   overlay.classList.add("hidden");
@@ -172,7 +224,7 @@ addEventListener("resize", () => {
 let last = performance.now(), elapsed = 0, frames = 0;
 { const m = P.get("t0"); if (m) elapsed = parseFloat(m) || 0; }
 let resScale = resMax, aoOn = !!tier.ao;
-let emaMs = 16, adaptT = 0, hudT = 0, lodT = 0;
+let emaMs = 16, adaptT = 0, hudT = 0;
 const ATTRACT_R = 2150;
 
 function applyRes() {
@@ -204,9 +256,10 @@ function frame(now) {
   }
 
   applyNight(U.uNight.value, time);
-  for (const m of modList) m.update(dt, time, camera);
+  const cyberMix = U.uCyber.value;
+  for (const m of modList) m.update(dt, time, camera, cyberMix);
   env.update(camera, dt);
-  fx.applyEnv(env.cur, camera, aoOn);
+  fx.applyEnv(env.cur, camera, aoOn, dt);
   renderer.info.reset();
   fx.composer.render();
   frames++;
@@ -217,7 +270,6 @@ function frame(now) {
     hudT = 0;
     if (fpsVal) fpsVal.textContent = Math.round(1000 / emaMs);
   }
-  // адаптивное качество: сначала выключаем AO, затем понижаем разрешение
   adaptT += raw;
   if (adaptT > 3 && frames > 90) {
     adaptT = 0;
@@ -232,14 +284,15 @@ function frame(now) {
 function stats() {
   const i = renderer.info;
   return { calls: i.render.calls, tris: i.render.triangles, programs: i.programs.length, geometries: i.memory.geometries, textures: i.memory.textures,
-    tier: tierName, res: +resScale.toFixed(2), ms: +emaMs.toFixed(1), buildings: mods.buildings ? mods.buildings.list.length : 0 };
+    tier: tierName, res: +resScale.toFixed(2), ms: +emaMs.toFixed(1), buildings: mods.buildings ? mods.buildings.list.length : 0, cyber: cyberMode };
 }
 window.__app = {
   THREE, scene, camera, renderer, env, M, mods, controls, stats,
   look(px, py, pz, tx, ty, tz) { camera.position.set(px, py, pz); camera.lookAt(tx, ty, tz); controls.syncFromCamera(); },
-  setPreset(n, s = 0.001) { env.set(n, s); presetEl.textContent = PRESET_RU[n] || n; document.body.dataset.preset = n; },
+  setPreset(n, s = 0.001) { env.set(n, s); },
   setTime(t) { elapsed = t; },
   setCine(t) { controls.cineT = t; },
+  setCyber,
 };
 
 (async () => {
@@ -254,18 +307,34 @@ window.__app = {
   try { await renderer.compileAsync(scene, camera); } catch (e) { console.warn("compileAsync", e); }
   $("loadBar").style.width = "100%";
   await tick();
-  $("loadWrap").classList.add("done");
-  setTimeout(() => $("loadWrap").remove(), 900);
-  window.__ready = true;
-
-  // параметры URL: камера, кино, автостарт
-  { const mc = P.get("cam"), ml = P.get("look");
+  const loadWrap = $("loadWrap");
+  if (loadWrap) {
+    loadWrap.classList.add("done");
+    setTimeout(() => loadWrap.remove(), 900);
+  }
+  // URL параметры (instant = true чтобы стартовать сразу в нужном режиме/ракурсе без смаза)
+  const cyberParam = P.get("cyber");
+  if (cyberParam === "1" || cyberParam === "true") setCyber(true, true);
+  { const mc = P.get("cam"), ml = P.get("tgt");
     if (mc) { const p = mc.split(",").map(Number); camera.position.set(p[0], p[1], p[2]);
-      const q = ml ? ml.split(",").map(Number) : [0, 150, 0]; camera.lookAt(q[0], q[1], q[2]); controls.syncFromCamera(); } }
+      const q = ml ? ml.split(",").map(Number) : [0, 85, 0]; camera.lookAt(q[0], q[1], q[2]); controls.syncFromCamera(); } }
   if (P.has("autostart")) {
-    overlay.classList.add("hidden"); hud.classList.add("on"); controls.enabled = true; controls.syncFromCamera();
+    overlay.style.display = "none";
+    overlay.classList.add("hidden");
+    const lw = $("loadWrap");
+    if (lw) lw.remove();
+    hud.classList.add("on");
+    controls.enabled = true;
+    controls.syncFromCamera();
     if (P.has("cam")) controls.enabled = P.has("free");
   }
   if (P.has("cine")) setTimeout(() => { if (P.has("cineT")) controls.cineT = parseFloat(P.get("cineT")) || 0; controls.enterCinematic(); }, 200);
+  // view param — мгновенный переход на ракурс при загрузке страницы
+  const viewParam = P.get("view");
+  if (viewParam && CAM_VIEWS[viewParam]) {
+    controls.goToView(viewParam, true);
+    setActiveViewBtn(viewParam);
+  }
+  window.__ready = true;
 })();
 requestAnimationFrame(frame);

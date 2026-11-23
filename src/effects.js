@@ -1,8 +1,9 @@
 // ============================================================
-// CLAY CITY v3 — постобработка.
+// ASTANA 2077 — постобработка.
 // Сцена → HDR(MSAA + depth) → AO по глубине + высотный туман → bloom →
-// ACES → кино-грейдинг → [FXAA]. Туман и AO считаются по глубине,
-// поэтому не зависят от материалов и работают для всей сцены.
+// ACES → кино-грейдинг → [FXAA]. Туман и AO считаются по глубине.
+// В киберпанк-режиме: selective bloom (threshold 0.85), хром. аберрация,
+// виньетка, мокрый кибер-атмосферный туман.
 // ============================================================
 import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
@@ -58,7 +59,7 @@ void main() {
     occ += max(0.0, ndv - 0.08) * (1.0 - smoothstep(radius * 0.45, radius, vl));
   }
   float ao = clamp(1.0 - occ * (uIntensity * 2.3 / float(SAMPLES)), 0.0, 1.0);
-  ao = mix(1.0, ao, smoothstep(2.0, 14.0, dist) * (1.0 - smoothstep(350.0, 900.0, dist)));   // вдали шум AO не нужен
+  ao = mix(1.0, ao, smoothstep(2.0, 14.0, dist) * (1.0 - smoothstep(350.0, 900.0, dist)));
   gl_FragColor = vec4(pow(ao, 1.3));
 }`;
 
@@ -79,7 +80,7 @@ void main() {
 
 const FOG_FS = `
 uniform sampler2D tDiffuse; uniform sampler2D tDepth; uniform sampler2D tAO;
-uniform float uFogDensity, uFogFalloff, uFogBase, uSunGlow, uAO, uNight, uTime;
+uniform float uFogDensity, uFogFalloff, uFogBase, uSunGlow, uAO, uNight, uCyber, uTime;
 uniform vec3 uFogHorizon, uFogZenith, uSunColor; uniform vec3 uSunDir;
 varying vec2 vUv;
 ${DEPTH_FNS}
@@ -93,17 +94,22 @@ void main() {
     float dist = max(length(rel), 1e-4); vec3 dir = rel / dist;
     float ao = texture2D(tAO, vUv).r;
     col.rgb *= mix(1.0, ao, uAO);
-    // экспоненциальный высотный туман (аналитически вдоль луча)
+    // экспоненциальный высотный туман (оптическая толща пропорциональна dist)
     float x = (P.y - cameraPosition.y) * uFogFalloff;
     float k = abs(x) > 1e-3 ? (1.0 - exp(-x)) / x : 1.0 - 0.5 * x;
-    float F = uFogDensity * exp(-(cameraPosition.y - uFogBase) * uFogFalloff) * k;
-    float fog = 1.0 - exp(-F);
+    // в кибер-режиме — более плотный, влажный неоновый туман
+    float cyberFogBoost = 1.0 + uCyber * 0.55;
+    float F = dist * uFogDensity * cyberFogBoost * exp(-max(cameraPosition.y - uFogBase, 0.0) * uFogFalloff) * k;
+    float fog = clamp(1.0 - exp(-F), 0.0, 0.92);
     vec3 fc = mix(uFogHorizon, uFogZenith, smoothstep(0.0, 0.55, dir.y));
     float mu = max(dot(dir, uSunDir), 0.0);
     fc += uSunColor * (pow(mu, 5.0) * 0.22 + pow(mu, 40.0) * 0.4 + pow(mu, 700.0) * 1.5) * uSunGlow;
-    // свет города в дымке
-    float ring = exp(-abs(P.y - uFogBase) / 260.0) * (1.0 - smoothstep(900.0, 3600.0, length(P.xz)));
-    fc += vec3(0.34, 0.19, 0.085) * ring * uNight * (0.55 + 0.45 * exp(-dist / 2500.0));
+    // свет города в дымке (насыщенный и глубокий, без молочной засветки!)
+    float ring = exp(-abs(P.y - uFogBase) / 220.0) * (1.0 - smoothstep(1000.0, 3600.0, length(P.xz)));
+    fc += vec3(0.10, 0.05, 0.025) * ring * uNight * (1.0 - uCyber * 0.55) * (0.5 + 0.5 * exp(-dist / 2400.0));
+    // кибер-неоновая атмосферная дымка (глубокий индиго-фиолетовый + циан)
+    vec3 cyberFog = vec3(0.075, 0.028, 0.155) + vec3(0.0, 0.042, 0.065);
+    fc += cyberFog * uCyber * ring;
     col.rgb = mix(col.rgb, fc, fog);
   }
   col.rgb = clamp(mix(vec3(0.0), col.rgb, step(vec3(-1.0), col.rgb)), vec3(0.0), vec3(64.0));
@@ -125,7 +131,7 @@ class AtmospherePass extends Pass {
     const shared = {
       uProjInv: { value: new THREE.Matrix4() }, uCamMat: { value: camera.matrixWorld },
       uNear: { value: camera.near }, uFar: { value: camera.far },
-      uSunDir: U.uSunDir, uNight: U.uNight, uTime: U.uTime, ...this.fog,
+      uSunDir: U.uSunDir, uNight: U.uNight, uCyber: U.uCyber, uTime: U.uTime, ...this.fog,
     };
     this.shared = shared;
     this.aoMat = new THREE.ShaderMaterial({
@@ -148,9 +154,7 @@ class AtmospherePass extends Pass {
   }
   render(renderer, writeBuffer, readBuffer) {
     const q = this.quad;
-    renderer.setRenderTarget(this.aoRT);            // отвязка MSAA-таргета резолвит глубину
-    const cam = readBuffer ? null : null;
-    void cam;
+    renderer.setRenderTarget(this.aoRT);
     const depth = readBuffer.depthTexture;
     if (this.aoOn && depth) {
       this.aoMat.uniforms.tDepth.value = depth;
@@ -173,24 +177,33 @@ class AtmospherePass extends Pass {
 
 const CineShader = {
   uniforms: {
-    tDiffuse: { value: null }, uTime: U.uTime,
+    tDiffuse: { value: null }, uTime: U.uTime, uCyber: U.uCyber,
     uGrain: { value: 0.03 }, uCA: { value: 0.001 }, uVignette: { value: 0.3 }, uSat: { value: 1 }, uCon: { value: 1.03 },
     uTint: { value: new THREE.Color(0x1b2a52) }, uTintAmt: { value: 0.2 }, uRes: { value: new THREE.Vector2(1920, 1080) },
+    uGlitch: { value: 0 },
   },
   vertexShader: VS,
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float uTime, uGrain, uCA, uVignette, uSat, uCon, uTintAmt; uniform vec3 uTint; uniform vec2 uRes;
+    uniform sampler2D tDiffuse; uniform float uTime, uGrain, uCA, uVignette, uSat, uCon, uTintAmt, uCyber, uGlitch;
+    uniform vec3 uTint; uniform vec2 uRes;
     varying vec2 vUv;
     float hash(vec2 p){ p = fract(p * vec2(443.897, 441.423)); p += dot(p, p + 19.19); return fract(p.x * p.y); }
     void main(){
       vec2 d = vUv - 0.5; float r2 = dot(d, d);
-      vec2 off = d * uCA * (0.3 + r2 * 4.0);
-      vec3 col = vec3(texture2D(tDiffuse, vUv + off).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - off).b);
+      // усиленная хроматическая аберрация в кибер-режиме
+      float caBoost = uCA * (1.0 + uCyber * 1.5);
+      vec2 off = d * caBoost * (0.3 + r2 * 4.0);
+      // глитч-сдвиг при переходе
+      float glitchOff = uGlitch * (hash(vec2(floor(vUv.y * 40.0), uTime)) - 0.5) * 0.03;
+      vec2 guv = vUv + vec2(glitchOff, 0.0);
+      vec3 col = vec3(texture2D(tDiffuse, guv + off).r, texture2D(tDiffuse, guv).g, texture2D(tDiffuse, guv - off).b);
       float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
       col = mix(vec3(l), col, uSat);
       col = mix(col, col * (uTint * 1.5 + 0.5), uTintAmt * (1.0 - smoothstep(0.0, 0.4, l)));
       col = clamp((col - 0.5) * uCon + 0.5, 0.0, 1.0);
-      col *= 1.0 - smoothstep(0.12, 0.72, r2) * uVignette;
+      // усиленная виньетка в кибер-режиме
+      float vigBoost = uVignette * (1.0 + uCyber * 0.3);
+      col *= 1.0 - smoothstep(0.12, 0.72, r2) * vigBoost;
       col += (hash(vUv * uRes + fract(uTime * 0.137) * 913.0) - 0.5) * uGrain;
       gl_FragColor = vec4(col, 1.0);
     }`,
@@ -217,6 +230,9 @@ export function createEffects(renderer, scene, camera, tier) {
   const fxaa = tier.msaa ? null : new ShaderPass(FXAAShader);
   if (fxaa) composer.addPass(fxaa);
 
+  // Glitch flash для перехода
+  let glitchT = 0;
+
   return {
     composer, atmo, bloom, cine,
     setPixelRatio(pr) { composer.setPixelRatio(pr); },
@@ -226,10 +242,14 @@ export function createEffects(renderer, scene, camera, tier) {
       cine.uniforms.uRes.value.set(pw, ph);
       if (fxaa) fxaa.material.uniforms.resolution.value.set(1 / pw, 1 / ph);
     },
+    /** Запустить короткую неоновую вспышку / глитч при переходе */
+    flashGlitch() {
+      glitchT = 0.35; // секунды
+    },
     /** Синхронизировать туман/bloom/грейдинг с пресетом окружения. */
-    applyEnv(cur, camera, atmoOn) {
+    applyEnv(cur, camera, atmoOn, dt) {
       const f = atmo.fog;
-      f.uFogDensity.value = cur.fogD * 3.4e-4;
+      f.uFogDensity.value = cur.fogD * 2.5e-4;
       f.uFogHorizon.value.copy(cur.fogC); f.uFogZenith.value.copy(cur.fogZ);
       f.uSunColor.value.copy(cur.sunC); f.uSunGlow.value = cur.glow;
       atmo.shared.uProjInv.value.copy(camera.projectionMatrixInverse);
@@ -239,6 +259,13 @@ export function createEffects(renderer, scene, camera, tier) {
       const c = cine.uniforms;
       c.uGrain.value = cur.grain; c.uCA.value = cur.ca; c.uVignette.value = cur.vignette;
       c.uSat.value = cur.sat; c.uCon.value = cur.con; c.uTint.value.copy(cur.tint); c.uTintAmt.value = cur.tintAmt;
+      // glitch decay
+      if (glitchT > 0) {
+        glitchT = Math.max(0, glitchT - (dt || 0.016));
+        c.uGlitch.value = glitchT / 0.35;
+      } else {
+        c.uGlitch.value = 0;
+      }
     },
   };
 }

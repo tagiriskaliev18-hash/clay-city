@@ -1,450 +1,555 @@
 // ============================================================
-// CLAY CITY v3 — инфраструктура: платформы-кольца, земля-шейдер
-// (дороги с разметкой, площадь, бульвар, набережные, свет фонарей),
-// квартальные плиты с тротуарами, мосты, дно платформ, причальные
-// мачты, промзона.
+// ASTANA REAL v2 — city.js
+// Реальная Астана: городская подложка + парковые зоны,
+// река Есиль (волновой шейдер + отражение неба/кибер-неона) с
+// гранитными набережными, проспекты с мокрым асфальтом и разметкой,
+// Водно-Зелёный бульвар Нуржол (террасы, фонтаны, галереи, аллеи),
+// 3 реальных моста через Есиль (вкл. бионический мост «Атырау»!).
 // ============================================================
 import * as THREE from "three";
-import { GB, revolve, tube, merge, place } from "./geom.js";
+import { WORLD, ROADS } from "./config.js";
 import { U } from "./env.js";
-import { PLATFORMS, ROAD, ZONES } from "./config.js";
-import { bandRange, avenues, blockClear, TAU } from "./grid.js";
+import { GB, revolve, tube, merge, place } from "./geom.js";
+import { leafSprite } from "./textures.js";
 
-const CURB = ROAD.curb;
-
-// ---------- земля: общий GLSL ----------
-const G_COMMON = `
-uniform float uRoads[8]; uniform int uNR;
-uniform float uAve[8]; uniform int uNB;
-uniform float uRIn, uROut, uPlaza, uBoulevard, uEdgeIn, uEdgeOut, uNight, uSlab, uDebug;
-uniform vec4 uErase[12]; uniform int uNE;
-varying vec2 vCity; varying vec2 vSlabUv; varying vec4 vBlk; varying float vUpN;
-float gRough; vec3 gGlow;
-float gHash(vec2 p) { p = fract(p * vec2(123.34, 345.45)); p += dot(p, p + 34.345); return fract(p.x * p.y); }
-float gNoise(vec2 p) { vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(mix(gHash(i), gHash(i + vec2(1.0, 0.0)), u.x), mix(gHash(i + vec2(0.0, 1.0)), gHash(i + vec2(1.0, 1.0)), u.x), u.y); }
-float gLine(float x, float aa) { return 1.0 - smoothstep(0.12, 0.12 + aa, x); }`;
-
-const G_COLOR = `
-{
-  vec2 p = vCity;
-  float r = length(p);
-  float ang = r > 1e-4 ? atan(p.y, p.x) : 0.0;
-  float aa = fwidth(r) + 1e-4;
-  float fine = clamp(0.10 / aa, 0.0, 1.0);
-  float n1 = gNoise(p * 0.07), n2 = gNoise(p * 4.0), n3 = gNoise(p * 0.05);
-  float n2f = mix(1.0, n2, fine);
-  vec3 grass = vec3(0.055, 0.095, 0.035) * (0.82 + 0.36 * mix(1.0, gNoise(p * 0.35), fine)) * (0.85 + 0.3 * n3);
-  vec3 gA = vec3(0.40, 0.385, 0.355), gB = vec3(0.29, 0.275, 0.25);
-  vec2 gj = abs(fract(p / 1.2) - 0.5);
-  vec3 foreC = mix(gA, gB * 0.72, step(0.455, max(gj.x, gj.y)) * fine) * (0.9 + 0.2 * n2f);
-  float blvd = uBoulevard > 0.0 ? (1.0 - smoothstep(uBoulevard - aa, uBoulevard + aa, abs(p.y))) * step(uRIn > 1.0 ? 0.0 : -260.0, p.x) : 0.0;
-  float path = max(1.0 - smoothstep(2.0, 2.0 + aa, abs(abs(p.y) - 14.0)), 1.0 - smoothstep(2.0, 2.0 + aa, abs(abs(p.y) - 36.0)));
-  float crossP = 1.0 - smoothstep(1.6, 1.6 + aa, abs(fract(p.x / 60.0 + 0.5) - 0.5) * 60.0);
-  vec3 blvdC = mix(grass, vec3(0.42, 0.39, 0.34), clamp(path + crossP, 0.0, 1.0));
-  float erase = 0.0;
-  for (int i = 0; i < 12; i++) { if (i >= uNE) break; vec4 e = uErase[i];
-    erase = max(erase, step(e.x, p.x) * step(p.x, e.z) * step(e.y, p.y) * step(p.y, e.w)); }
-  float plaza = uPlaza > 1.0 ? 1.0 - smoothstep(uPlaza - aa, uPlaza + aa, r) : 0.0;
-  float ringTone = step(0.5, fract(r / 12.0));
-  float sector = step(0.5, fract(ang / 6.2831853 * 16.0 + 0.5));
-  vec3 plazaC = mix(mix(gA, gB, ringTone), mix(gB, gA, ringTone), sector) * (0.9 + 0.2 * n2f);
-  // --- дорожная сеть ---
-  float dRing = 1e5, rNear = 0.0, bandF = 0.0;
-  for (int i = 0; i < 8; i++) { if (i >= uNR) break; float d = abs(r - uRoads[i]);
-    if (d < dRing) { dRing = d; rNear = uRoads[i]; } bandF += step(uRoads[i], r); }
-  int bi = int(bandF); if (bi >= uNB) bi = uNB - 1;
-  float n = uAve[bi];
-  float cell = 6.2831853 / n;
-  float k = floor((ang + 3.14159265) / cell + 0.5);
-  float aA = -3.14159265 + k * cell;
-  vec2 dir = vec2(cos(aA), sin(aA));
-  float along = abs(dot(p, dir));
-  float dAve = abs(p.x * dir.y - p.y * dir.x);
-  float rStart = max(uPlaza, uRIn + 14.0);
-  float ringRoad = 1.0 - smoothstep(8.4 - aa, 9.0 + aa, dRing);
-  float aveRoad = (1.0 - smoothstep(7.4 - aa, 8.0 + aa, dAve)) * step(rStart, r) * (1.0 - step(uROut - uEdgeOut + 2.0, r));
-  float road = max(ringRoad, aveRoad) * (1.0 - erase);
-  gGlow = vec3(0.0);
-  if (uSlab > 0.5) {
-    float dE = min(min(vSlabUv.x, vBlk.z - vSlabUv.x), min(vSlabUv.y, vBlk.w - vSlabUv.y));
-    if (vUpN < 0.5) { diffuseColor.rgb = vec3(0.085, 0.085, 0.085); gRough = 0.8; }
-    else {
-      float aaS = fwidth(dE) + 1e-4;
-      float walk = 1.0 - smoothstep(4.6 - aaS, 5.0 + aaS, dE);
-      vec2 tj = abs(fract(vSlabUv / 0.6) - 0.5);
-      vec3 walkC = mix(vec3(0.33, 0.325, 0.31), vec3(0.19, 0.185, 0.18), step(0.44, max(tj.x, tj.y)) * fine) * (0.9 + 0.2 * n2f);
-      float isPark = step(gHash(floor(vBlk.xy + 0.5) * 1.37 + 0.5), 0.26);
-      vec3 yard = mix(vec3(0.20, 0.195, 0.185), grass * 1.15, isPark) * (0.9 + 0.2 * n2f);
-      vec3 c = mix(yard, walkC, walk);
-      if (uDebug > 0.5) c = vec3(isPark, walk, dE * 0.05);
-      if (uDebug > 1.5) c = vec3(vBlk.xy * 0.1, fract(vBlk.w * 0.1));
-      if (uDebug > 2.5) c = vec3(fract(vSlabUv * 0.1), 0.5);
-      c = mix(c, foreC, erase);
-      c = mix(c, blvdC, blvd);
-      diffuseColor.rgb = c;
-      gRough = mix(0.92, 0.74, walk);
-    }
-  } else {
-    float o1 = r - rNear;
-    float aaR = fwidth(o1) + 1e-4, aaA = fwidth(dAve) + 1e-4;
-    float fineR = clamp(0.05 / aaR, 0.0, 1.0), fineA = clamp(0.05 / aaA, 0.0, 1.0), fineD = clamp(0.10 / aa, 0.0, 1.0);
-    float laneR = gLine(abs(abs(o1) - 3.6), aaR) * step(fract(abs(ang) * r / 9.0), 0.333) * fineD;
-    float edgeR = gLine(abs(abs(o1) - 7.4), aaR);
-    float ctrR = gLine(abs(abs(o1) - 0.22), aaR);
-    float laneA = gLine(abs(dAve - 3.6), aaA) * step(fract(along / 9.0), 0.333) * fineD;
-    float edgeA = gLine(abs(dAve - 7.4), aaA);
-    float ctrA = gLine(abs(dAve - 0.22), aaA);
-    float mark = clamp((laneR * 0.75 + edgeR + ctrR) * ringRoad + (laneA * 0.75 + edgeA + ctrA) * aveRoad, 0.0, 1.0) * (1.0 - erase) * mix(fineA, fineR, ringRoad);
-    float wet = step(0.72, n1);
-    vec3 asphalt = vec3(0.040, 0.041, 0.044) * (0.82 + 0.36 * n2f) * (0.9 + 0.2 * n3);
-    asphalt = mix(asphalt, vec3(0.62, 0.62, 0.58), mark);
-    vec3 lot = vec3(0.11, 0.105, 0.10) * (0.8 + 0.4 * n2f);
-    float edge = max(step(r, uRIn + uEdgeIn), step(uROut - uEdgeOut, r));
-    vec3 promC = mix(vec3(0.30, 0.29, 0.27), vec3(0.17, 0.115, 0.07), max(step(uROut - 6.0, r), step(r, uRIn + 6.0))) * (0.9 + 0.2 * n2f);
-    vec3 c = mix(lot, asphalt, road);
-    c = mix(c, promC, edge * (1.0 - road) * (1.0 - erase));
-    c = mix(c, blvdC, blvd * (1.0 - road));
-    c = mix(c, foreC, erase * (1.0 - road) * (1.0 - blvd));
-    c = mix(c, plazaC, plaza);
-    diffuseColor.rgb = c;
-    gRough = mix(0.92, mix(0.58, 0.30, wet), road);
+/** Масштабирует UV плоскости в метры, чтобы PBR-текстуры тайлились в реальном масштабе. */
+function meterPlane(w, d, segW = 1, segD = 1) {
+  const g = new THREE.PlaneGeometry(w, d, segW, segD);
+  g.rotateX(-Math.PI / 2);
+  const uv = g.attributes.uv;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, uv.getX(i) * w, uv.getY(i) * d);
   }
-  // ночью: пятна света фонарей вдоль улиц
-  float sN = abs(fract(abs(ang) * r / 38.0 + 0.5) - 0.5) * 38.0;
-  float sP = abs(fract(along / 38.0 + 0.5) - 0.5) * 38.0;
-  float pool = exp(-pow(sN / 10.0, 2.0) - pow(dRing / 9.0, 2.0)) * ringRoad
-             + exp(-pow(sP / 10.0, 2.0) - pow(dAve / 8.5, 2.0)) * aveRoad;
-  gGlow = vec3(1.0, 0.72, 0.42) * pool * uNight * 0.30 * (1.0 - erase);
-}`;
-
-function groundMaterial(M, plat, isSlab) {
-  const roads = new Array(8).fill(0), ave = new Array(8).fill(1);
-  plat.ringRoads.forEach((v, i) => { roads[i] = v; });
-  plat.ave.forEach((v, i) => { ave[i] = v; });
-  const erase = new Float32Array(48);
-  let ne = 0;
-  for (const z of ZONES) {
-    if (z.plat !== plat.id || ne >= 12) continue;
-    erase.set([z.x - z.hx - 4, z.z - z.hz - 4, z.x + z.hx + 4, z.z + z.hz + 4], ne * 4); ne++;
-  }
-  const uni = {
-    uRoads: { value: roads }, uNR: { value: plat.ringRoads.length },
-    uAve: { value: ave }, uNB: { value: plat.ave.length },
-    uRIn: { value: plat.rIn }, uROut: { value: plat.rOut }, uPlaza: { value: plat.plaza || 0 },
-    uBoulevard: { value: plat.id === "core" || plat.id === "ringB" ? 46 : 0 },
-    uEdgeIn: { value: plat.edgeIn }, uEdgeOut: { value: plat.edgeOut },
-    uNight: U.uNight, uSlab: { value: isSlab ? 1 : 0 }, uDebug: { value: 0 },
-    uErase: { value: erase }, uNE: { value: ne },
-  };
-  const mat = M.std({
-    color: 0xffffff, roughness: 1, metalness: 0, envMapIntensity: 0.6,
-    polygonOffset: isSlab, polygonOffsetFactor: isSlab ? -1 : 0, polygonOffsetUnits: isSlab ? -2 : 0,
-  }, {
-    key: "ground",
-    patch: (sh) => {
-      Object.assign(sh.uniforms, uni);
-      mat.userData.shader = sh;
-      sh.vertexShader = sh.vertexShader
-        .replace("#include <common>", `#include <common>
-          attribute vec4 aBlock;
-          varying vec2 vCity; varying vec2 vSlabUv; varying vec4 vBlk; varying float vUpN;`)
-        .replace("#include <worldpos_vertex>", `#include <worldpos_vertex>
-          vCity = worldPosition.xz; vSlabUv = uv; vBlk = aBlock; vUpN = normal.y;`);
-      sh.fragmentShader = sh.fragmentShader
-        .replace("#include <common>", `#include <common>\n${G_COMMON}`)
-        .replace("#include <map_fragment>", G_COLOR)
-        .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>\n roughnessFactor = gRough;`)
-        .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>\n totalEmissiveRadiance += gGlow;`);
-    },
-  });
-  mat.userData.uni = uni;
-  return mat;
-}
-
-// ---------- квартальные плиты: сектора между дорогами, uv = (вдоль дуги, по радиусу) ----------
-function slabGeometry(plat) {
-  const pos = [], nor = [], uvs = [], blk = [], idx = [];
-  let v = 0;
-  const vert = (x, y, z, nx, ny, nz, u, w, i, k, W, D) => { pos.push(x, y, z); nor.push(nx, ny, nz); uvs.push(u, w); blk.push(i, k, W, D); return v++; };
-  const wall = (P, Q, nx, nz) => {  // бордюр от P к Q (на земле) высотой CURB; нормаль (nx,nz) наружу
-    let p0 = P, p1 = Q;
-    if ((p1[2] - p0[2]) * nx - (p1[0] - p0[0]) * nz < 0) { p0 = Q; p1 = P; }
-    const i0 = vert(p1[0], 0, p1[2], nx, 0, nz, 0, 0, 0, 0, 0, 0), i1 = vert(p0[0], 0, p0[2], nx, 0, nz, 0, 0, 0, 0, 0, 0);
-    const i2 = vert(p0[0], CURB, p0[2], nx, 0, nz, 0, 0, 0, 0, 0, 0), i3 = vert(p1[0], CURB, p1[2], nx, 0, nz, 0, 0, 0, 0, 0, 0);
-    idx.push(i0, i1, i2, i0, i2, i3);
-  };
-  for (let i = 0; i < plat.ringRoads.length; i++) {
-    if (!blockClear(plat, i)) continue;
-    const [r0, r1] = bandRange(plat, i);
-    const rIn = r0 + (i === 0 ? plat.edgeIn : ROAD.ringHalf), rOut = r1 - ROAD.ringHalf;
-    const n = avenues(plat, i), cell = TAU / n;
-    for (let k = 0; k < n; k++) {
-      const a0 = -Math.PI + k * cell, a1 = a0 + cell;
-      const aIn = (rr) => a0 + Math.asin(ROAD.aveHalf / rr), aOut = (rr) => a1 - Math.asin(ROAD.aveHalf / rr);
-      const rMid = (rIn + rOut) / 2, W = (aOut(rMid) - aIn(rMid)) * rMid, D = rOut - rIn;
-      if (W < 14) continue;
-      const nr = Math.max(1, Math.ceil(D / 9)), na = Math.max(2, Math.ceil(W / 9));
-      const rows = [];
-      for (let ir = 0; ir <= nr; ir++) {
-        const rr = rIn + (D * ir) / nr, b = aIn(rr), e = aOut(rr), rowI = [];
-        for (let ia = 0; ia <= na; ia++) {
-          const a = b + ((e - b) * ia) / na;
-          rowI.push(vert(Math.cos(a) * rr, CURB, Math.sin(a) * rr, 0, 1, 0, (a - b) * rr, rr - rIn, i, k, W, D));
-        }
-        rows.push(rowI);
-      }
-      for (let ir = 0; ir < nr; ir++) for (let ia = 0; ia < na; ia++) {
-        const a = rows[ir][ia], b = rows[ir + 1][ia], c = rows[ir + 1][ia + 1], d = rows[ir][ia + 1];
-        idx.push(a, d, c, a, c, b);
-      }
-      const NA = Math.max(2, Math.ceil(W / 9));
-      for (let s = 0; s < NA; s++) {  // дуговые стенки
-        for (const [rr, sg] of [[rIn, -1], [rOut, 1]]) {
-          const b = aIn(rr), e = aOut(rr), aa0 = b + ((e - b) * s) / NA, aa1 = b + ((e - b) * (s + 1)) / NA, am = (aa0 + aa1) / 2;
-          wall([Math.cos(aa0) * rr, 0, Math.sin(aa0) * rr], [Math.cos(aa1) * rr, 0, Math.sin(aa1) * rr], sg * Math.cos(am), sg * Math.sin(am));
-        }
-      }
-      wall([Math.cos(aIn(rIn)) * rIn, 0, Math.sin(aIn(rIn)) * rIn], [Math.cos(aIn(rOut)) * rOut, 0, Math.sin(aIn(rOut)) * rOut], Math.sin(a0), -Math.cos(a0));
-      wall([Math.cos(aOut(rIn)) * rIn, 0, Math.sin(aOut(rIn)) * rIn], [Math.cos(aOut(rOut)) * rOut, 0, Math.sin(aOut(rOut)) * rOut], -Math.sin(a1), Math.cos(a1));
-    }
-  }
-  if (!pos.length) return null;
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
-  g.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-  g.setAttribute("aBlock", new THREE.Float32BufferAttribute(blk, 4));
-  g.setIndex(new THREE.Uint32BufferAttribute(idx, 1));
-  g.computeBoundingSphere();
+  uv.needsUpdate = true;
   return g;
 }
 
-// ---------- мост между платформами (локально: +Z наружу, y от земли внутренней платформы) ----------
-function bridgeGeos(A, B, wide = 22, major = false) {
-  const z0 = A.rOut - 10, z1 = B.rIn + 10, len = z1 - z0, dy = B.y - A.y, N = 16, hw = wide / 2;
-  const deck = new GB(), conc = new GB(), brass = new GB(), white = new GB();
-  const yAt = (t) => dy * t + 3.2 * Math.sin(Math.PI * t);
-  const P = (x, t, dy2 = 0) => [x, yAt(t) + dy2, z0 + len * t];
-  for (let s = 0; s < N; s++) {
-    const t0 = s / N, t1 = (s + 1) / N;
-    deck.quad(P(-hw, t0), P(-hw, t1), P(hw, t1), P(hw, t0), [0, 1, 0.06], [0, t0 * len], [0, t1 * len], [wide, t1 * len], [wide, t0 * len]);
-    for (const sx of [-1, 1]) {
-      const x = sx * hw;
-      // фасадная балка
-      const fa = [x, yAt(t1), z0 + len * t1], fb = [x, yAt(t0), z0 + len * t0], fc = [x, yAt(t0) - 2.6, z0 + len * t0], fd = [x, yAt(t1) - 2.6, z0 + len * t1];
-      if (sx < 0) conc.quad(fa, fb, fc, fd, [sx, 0, 0], [t1 * len, 0], [t0 * len, 0], [t0 * len, 2.6], [t1 * len, 2.6]);
-      else conc.quad(fd, fc, fb, fa, [sx, 0, 0], [t1 * len, 2.6], [t0 * len, 2.6], [t0 * len, 0], [t1 * len, 0]);
-    }
-    for (const x of [-0.25, 0.25]) white.quad(P(x - 0.07, t0, 0.02), P(x - 0.07, t1, 0.02), P(x + 0.07, t1, 0.02), P(x + 0.07, t0, 0.02), [0, 1, 0], [0, 0], [0, 1], [1, 1], [1, 0]);
-  }
-  // стойки и поручни
-  const np = Math.floor(len / 3.2);
-  const railL = [], railR = [];
-  for (let i = 0; i <= np; i++) {
-    const t = i / np;
-    for (const sx of [-1, 1]) brass.box(sx * (hw - 0.5), yAt(t) + 0.55, z0 + len * t, 0.12, 1.1, 0.12);
-    railL.push(new THREE.Vector3(-(hw - 0.5), yAt(t) + 1.12, z0 + len * t));
-    railR.push(new THREE.Vector3(hw - 0.5, yAt(t) + 1.12, z0 + len * t));
-  }
-  // опоры
-  for (const t of [0.3, 0.7]) conc.box(0, yAt(t) - 2.6 - 80, z0 + len * t, wide - 4, 160, 5);
-  const brassG = merge([brass.build(), tube(railL, 0.07, 5), tube(railR, 0.07, 5)]);
-  const out = { deck: deck.build(), conc: conc.build(), brass: brassG, white: white.build() };
-  if (major) {
-    const st = new GB();
-    const zp = z0 + len * 0.5, top = 96;
-    for (const sx of [-1, 1]) st.box(sx * (hw + 2.2), top / 2 - 20, zp, 3.2, top + 40, 4.5);
-    st.box(0, top - 4, zp, wide + 7.6, 3.2, 4.5);
-    const cables = [];
-    for (let i = 1; i <= 13; i++) {
-      const t = 0.5 + i * 0.034;
-      if (t > 0.97) break;
-      for (const sx of [-1, 1]) {
-        cables.push(tube([new THREE.Vector3(sx * (hw + 2.2), top - 6, zp), new THREE.Vector3(sx * (hw - 0.5), yAt(t) + 1.2, z0 + len * t)], 0.13, 4));
-        cables.push(tube([new THREE.Vector3(sx * (hw + 2.2), top - 6, zp), new THREE.Vector3(sx * (hw - 0.5), yAt(1 - t) + 1.2, z0 + len * (1 - t))], 0.13, 4));
-      }
-    }
-    out.steel = merge([st.build(), ...cables]);
-  }
-  return out;
-}
-
-// ---------- причальная мачта: решётчатая ферма ----------
-function mastGeometry(h = 110) {
-  const legs = [], rings = [];
-  const s0 = 22, s1 = 5, N = 7;
-  const corner = (i) => [[1, 1], [-1, 1], [-1, -1], [1, -1]][i];
-  for (let i = 0; i < 4; i++) {
-    const [cx, cz] = corner(i);
-    legs.push(tube([new THREE.Vector3(cx * s0 / 2, 0, cz * s0 / 2), new THREE.Vector3(cx * s1 / 2, h, cz * s1 / 2)], 0.8, 6));
-  }
-  for (let k = 1; k <= N; k++) {
-    const y = (h * k) / N, s = s0 + (s1 - s0) * (k / N);
-    const pts = [];
-    for (let i = 0; i <= 4; i++) { const [cx, cz] = corner(i % 4); pts.push(new THREE.Vector3(cx * s / 2, y, cz * s / 2)); }
-    rings.push(tube(pts, 0.28, 5));
-    if (k < N) {
-      const y2 = (h * (k + 1)) / N, s2 = s0 + (s1 - s0) * ((k + 1) / N);
-      for (let i = 0; i < 4; i++) { const [ax, az] = corner(i), [bx, bz] = corner((i + 1) % 4);
-        rings.push(tube([new THREE.Vector3(ax * s / 2, y, az * s / 2), new THREE.Vector3(bx * s2 / 2, y2, bz * s2 / 2)], 0.16, 4)); }
-    }
-  }
-  const top = new GB();
-  revolve(top, [[0, h], [7, h], [7, h + 1.2], [2.2, h + 1.2], [0.5, h + 14], [0, h + 15.5]], 20, { smooth: false });
-  return { lattice: merge([...legs, ...rings]), top: top.build() };
-}
-
-export function buildCity(scene, M, ctx) {
+export function buildCity(scene, M, _ctx) {
   const group = new THREE.Group();
+  group.name = "city";
   scene.add(group);
-  const vents = [], masts = [];
-  const deckMat = M.std({ color: 0x1b1c1e, roughness: 0.45, metalness: 0.1 });
-  const glowRing = M.glow(0xff8a3d, 2.6);
-  const neonEdge = M.neon(0x46f2ff, 3.2);
-  const turbineRings = [];
 
-  // ---------- платформы ----------
-  for (const plat of PLATFORMS) {
-    const g = new THREE.Group();
-    g.position.y = plat.y;
-    group.add(g);
-    const T = plat.thick, rIn = plat.rIn, rOut = plat.rOut;
-    // тело
-    const body = new GB();
-    const prof = rIn > 0
-      ? [[rIn, -T], [rOut, -T], [rOut, -3], [rOut - 3, -0.5], [rIn + 3, -0.5], [rIn, -3], [rIn, -T]]
-      : [[0, -T], [rOut, -T], [rOut, -3], [rOut - 3, -0.5], [0, -0.5]];
-    revolve(body, prof, 220, { smooth: false });
-    const bodyMesh = new THREE.Mesh(body.build(), M.steel);
-    bodyMesh.receiveShadow = true; bodyMesh.castShadow = true; g.add(bodyMesh);
-    // земля (основание)
-    const gb = new GB();
-    revolve(gb, [[rOut - 2.8, 0.0], [rIn, 0.0]], 220, { smooth: false });
-    const ground = new THREE.Mesh(gb.build(), groundMaterial(M, plat, false));
-    ground.receiveShadow = true; ground.name = `ground-${plat.id}`; g.add(ground);
-    // квартальные плиты
-    const sg = slabGeometry(plat);
-    if (sg) { const slabs = new THREE.Mesh(sg, groundMaterial(M, plat, true)); slabs.name = `slabs-${plat.id}`; slabs.receiveShadow = true; g.add(slabs); }
-    // латунные пояса и ночная кромка
-    for (const [y, rad, tubeR, mat] of [[-0.9, rOut + 0.15, 0.38, M.brass], [-T + 1.4, rOut + 0.15, 0.3, M.brass], [-0.25, rOut - 1.4, 0.11, neonEdge]]) {
-      if (rad <= 0) continue;
-      const t = new THREE.Mesh(new THREE.TorusGeometry(rad, tubeR, 8, 220), mat);
-      t.rotation.x = Math.PI / 2; t.position.y = y; g.add(t);
-    }
-    if (rIn > 0) {
-      const t2 = new THREE.Mesh(new THREE.TorusGeometry(rIn + 0.1, 0.34, 8, 200), M.brass);
-      t2.rotation.x = Math.PI / 2; t2.position.y = -0.9; g.add(t2);
-      const pipe = new THREE.Mesh(new THREE.TorusGeometry(rOut - 16, 0.9, 8, 160), M.copper);
-      pipe.rotation.x = Math.PI / 2; pipe.position.y = -T - 2.2; g.add(pipe);
-    }
-    // дно: радиальные фермы и «левитаторы»
-    const span = rOut - rIn - 20;
-    const girder = new THREE.BoxGeometry(2.2, 3.6, span).translate(0, -T - 1.8, rIn + 10 + span / 2);
-    const ng = Math.round(TAU * rMid(plat) / 46);
-    const girders = new THREE.InstancedMesh(girder, M.darkMetal, ng);
-    for (let i = 0; i < ng; i++) girders.setMatrixAt(i, place(0, 0, 0, (i / ng) * TAU));
-    girders.frustumCulled = false; g.add(girders);
-    const nac = new THREE.CylinderGeometry(7, 5.5, 15, 14).translate(0, -T - 9, rOut - 11);
-    const nn = Math.round(TAU * rOut / 150);
-    const nacs = new THREE.InstancedMesh(nac, M.darkMetal, nn);
-    const ringG = new THREE.TorusGeometry(5.2, 0.5, 6, 20).rotateX(Math.PI / 2).translate(0, -T - 16.6, rOut - 11);
-    const rings = new THREE.InstancedMesh(ringG, glowRing, nn);
-    for (let i = 0; i < nn; i++) { const a = (i / nn) * TAU + 0.1; nacs.setMatrixAt(i, place(0, 0, 0, a)); rings.setMatrixAt(i, place(0, 0, 0, a)); }
-    nacs.frustumCulled = rings.frustumCulled = false; g.add(nacs, rings);
-    turbineRings.push(rings);
-  }
+  const S = WORLD.size;
+  const RX = WORLD.riverX;   // 780
+  const RW = WORLD.riverW;   // 155
+  const RL = 2400;           // протяжённость реки по Z
 
-  // ---------- мосты ----------
-  const byId = Object.fromEntries(PLATFORMS.map((p) => [p.id, p]));
-  const BR = [["core", "ringB", 45, 0], ["ringB", "ringC", 22.5, 1], ["ringC", "ringD", 15, 1]];
-  const buckets = { deck: [], conc: [], brass: [], white: [], steel: [] };
-  for (const [a, b, step] of BR) {
-    for (let deg = 0; deg < 360; deg += step) {
-      const rad = THREE.MathUtils.degToRad(deg);
-      const major = a === "core" && deg === 0;
-      const gs = bridgeGeos(byId[a], byId[b], major ? 32 : 22, major);
-      const m = new THREE.Matrix4().makeRotationY(Math.atan2(Math.cos(rad), Math.sin(rad))).setPosition(0, byId[a].y, 0);
-      for (const k of Object.keys(gs)) { gs[k].applyMatrix4(m); buckets[k].push(gs[k]); }
-    }
-  }
-  const mk = (list, mat, cast = true) => { if (!list.length) return; const mesh = new THREE.Mesh(merge(list), mat); mesh.castShadow = cast; mesh.receiveShadow = true; group.add(mesh); };
-  mk(buckets.deck, deckMat, false); mk(buckets.conc, M.concrete); mk(buckets.brass, M.brass, false); mk(buckets.white, M.whitePaint, false); mk(buckets.steel, M.brass);
-
-  // ---------- причальные мачты ----------
+  // ── 1. ГОРОДСКАЯ ПОДЛОЖКА (без z-fighting, UV в метрах) ──
   {
-    const spots = [["ringB", 60], ["ringB", 180], ["ringB", 300], ["ringD", 90], ["ringD", 270], ["ringC", 0]];
-    const mg = mastGeometry(110);
-    const lat = new THREE.InstancedMesh(mg.lattice, M.steel, spots.length);
-    const top = new THREE.InstancedMesh(mg.top, M.brass, spots.length);
-    const beaconGeo = new THREE.SphereGeometry(1.1, 8, 6).translate(0, 126.5, 0);
-    const beacon = new THREE.InstancedMesh(beaconGeo, M.glow(0xff2a1a, 5), spots.length);
-    spots.forEach(([pid, deg], i) => {
-      const p = byId[pid], a = THREE.MathUtils.degToRad(deg), rr = p.rOut - 24;
-      const x = Math.cos(a) * rr, z = Math.sin(a) * rr, y = p.y;
-      const m = place(x, y, z, 0);
-      lat.setMatrixAt(i, m); top.setMatrixAt(i, m); beacon.setMatrixAt(i, m);
-      masts.push({ x, y, z, top: new THREE.Vector3(x, y + 126, z) });
-    });
-    lat.castShadow = true; lat.frustumCulled = top.frustumCulled = beacon.frustumCulled = false;
-    group.add(lat, top, beacon);
+    const groundGeo = meterPlane(S * 2.4, S * 2.4, 1, 1);
+    const ground = new THREE.Mesh(groundGeo, M.groundUrban);
+    ground.position.y = -0.06;
+    ground.receiveShadow = true;
+    ground.name = "ground-urban";
+    group.add(ground);
+
+    // Парковые зелёные зоны реальной Астаны (y = 0.01, polygonOffset)
+    const parkSpecs = [
+      // Президентский парк (Правый берег: вокруг Пирамиды, Мечети, Музея)
+      { x: 1120, z: 0,    w: 440, d: 780 },
+      // Парк Влюблённых (у Хан Шатыра, западный конец оси)
+      { x: -1020, z: 0,   w: 220, d: 340 },
+      // Набережные парки вдоль левого берега Есиля
+      { x: 645, z: -460,  w: 110, d: 520 },
+      { x: 645, z: +460,  w: 110, d: 520 },
+      // Линейный парк южнее Акорды и парка EXPO
+      { x: 90,  z: 960,   w: 360, d: 280 },
+      // Сквер у Триумфальной арки
+      { x: 90,  z: 640,   w: 160, d: 120 },
+      // Сквер у QazaqGaz (ухоженный газон вокруг стилобата)
+      { x: 235, z: 155,   w: 118, d: 112 },
+    ];
+    const parkGeos = [];
+    for (const pk of parkSpecs) {
+      const g = meterPlane(pk.w, pk.d, 1, 1);
+      g.translate(pk.x, 0.01, pk.z);
+      parkGeos.push(g);
+    }
+    const parks = new THREE.Mesh(merge(parkGeos), M.grass);
+    parks.receiveShadow = true;
+    parks.name = "astana-parks";
+    group.add(parks);
   }
 
-  // ---------- промзона (ringD, южная половина) ----------
+  // ── 2. РЕКА ЕСИЛЬ (анимированный водный шейдер + кибер-отражения + гранитные набережные) ──
+  const waterGeo = meterPlane(RW, RL, 48, 96);
+  const waterMat = M.phys({
+    color: 0x16425b,
+    roughness: 0.09,
+    metalness: 0.25,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.06,
+    reflectivity: 1.0,
+    envMapIntensity: 1.85,
+    transparent: true,
+    opacity: 0.90,
+  }, {
+    key: "river-esil-water",
+    patch: (sh) => {
+      sh.uniforms.uTime = U.uTime;
+      sh.uniforms.uNight = U.uNight;
+      sh.uniforms.uCyber = U.uCyber;
+      sh.vertexShader = sh.vertexShader
+        .replace("#include <common>", `#include <common>
+          uniform float uTime;
+          varying vec3 vWaterW;`)
+        .replace("#include <begin_vertex>", `#include <begin_vertex>
+          float w1 = sin(position.x * 0.055 + uTime * 0.95) * 0.22;
+          float w2 = sin(position.z * 0.040 + uTime * 0.72) * 0.18;
+          float w3 = sin((position.x * 0.09 - position.z * 0.07) + uTime * 1.45) * 0.09;
+          transformed.y += w1 + w2 + w3;`)
+        .replace("#include <worldpos_vertex>", `#include <worldpos_vertex>
+          vWaterW = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
+      sh.fragmentShader = sh.fragmentShader
+        .replace("#include <common>", `#include <common>
+          uniform float uTime; uniform float uNight; uniform float uCyber;
+          varying vec3 vWaterW;`)
+        .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+          float rip = 0.5 + 0.5 * sin(vWaterW.z * 0.18 + uTime * 2.2 + sin(vWaterW.x * 0.12) * 2.0);
+          float band = smoothstep(0.55, 0.96, rip);
+          vec3 nightSheen = vec3(0.05, 0.12, 0.22) * uNight * (0.4 + 0.6 * rip);
+          vec3 cyberGlow = mix(vec3(0.0, 0.75, 0.95), vec3(0.85, 0.16, 0.65), 0.5 + 0.5 * sin(vWaterW.z * 0.015 + uTime * 0.4));
+          totalEmissiveRadiance += nightSheen + cyberGlow * band * uCyber * 0.42;`);
+    },
+  });
+  const water = new THREE.Mesh(waterGeo, waterMat);
+  water.position.set(RX, -0.35, 0);
+  water.receiveShadow = true;
+  water.name = "river-esil";
+  group.add(water);
+
+  // Тёмное русло реки под водой
+  const riverBed = new THREE.Mesh(
+    new THREE.BoxGeometry(RW + 12, 2.0, RL),
+    M.std({ color: 0x0b1c2a, roughness: 0.98, metalness: 0 })
+  );
+  riverBed.position.set(RX, -1.65, 0);
+  group.add(riverBed);
+
+  // Двухъярусные гранитные набережные Есиля с променадом и парапетами
   {
-    const p = byId.ringD, g = new THREE.Group(); g.position.y = p.y; group.add(g);
-    const at = (deg, rr) => { const a = THREE.MathUtils.degToRad(deg); return [Math.cos(a) * rr, Math.sin(a) * rr]; };
-    const steel = [], dark = [], brass = [], copper = [];
-    for (const [deg, rr, h, rad] of [[60, 1335, 160, 4.2], [76, 1388, 118, 3.4], [101, 1312, 142, 3.8], [126, 1362, 96, 3.0]]) {
-      const [x, z] = at(deg, rr);
+    const granGeos = [], lightGeos = [];
+    for (const side of [-1, 1]) {
+      const edgeX = RX + side * (RW / 2);
       const B = new GB();
-      revolve(B, [[rad * 1.9, 0], [rad * 1.9, 8], [rad * 1.25, 30], [rad, h - 6], [rad * 1.3, h], [rad * 1.3, h + 2.5], [rad * 0.85, h + 2.5], [rad * 0.85, h - 10]], 20, { smooth: false });
-      const geo = B.build().translate(x, 0, z); steel.push(geo);
-      for (const yy of [h * 0.35, h * 0.68]) brass.push(new THREE.TorusGeometry(rad * (1.45 - yy / h * 0.42), 0.35, 6, 24).rotateX(Math.PI / 2).translate(x, yy, z));
-      vents.push({ pos: new THREE.Vector3(x, p.y + h + 2, z), type: "smoke" });
-    }
-    for (const [deg, rr, rad, h] of [[34, 1330, 40, 34], [151, 1352, 35, 30], [143, 1298, 30, 26]]) {
-      const [x, z] = at(deg, rr);
-      const B = new GB();
-      revolve(B, [[0, 0], [rad, 0], [rad, h], [rad + 0.6, h + 1.5], [rad * 0.8, h + 5], [0, h + 6]], 36, { smooth: false });
-      steel.push(B.build().translate(x, 0, z));
-      dark.push(new THREE.TorusGeometry(rad + 0.9, 0.4, 6, 36).rotateX(Math.PI / 2).translate(x, h * 0.5, z));
-      for (let i = 0; i < 12; i++) { const a = (i / 12) * TAU; dark.push(new THREE.BoxGeometry(0.7, h + 8, 0.7).translate(x + Math.cos(a) * (rad + 1.2), (h + 8) / 2, z + Math.sin(a) * (rad + 1.2))); }
-    }
-    for (const [deg, rr, w, d, h, yaw] of [[48, 1300, 70, 44, 18, 0.3], [88, 1345, 90, 40, 20, 1.2], [112, 1385, 60, 36, 16, 0.9], [138, 1325, 80, 40, 18, 1.9], [165, 1375, 70, 36, 16, 2.6], [22, 1385, 60, 34, 15, 0.6], [72, 1398, 56, 30, 14, 1.5]]) {
-      const [x, z] = at(deg, rr);
-      const B = new GB();
-      B.box(x, h / 2, z, w, h, d, yaw);
-      for (let k = 0; k < 6; k++) {  // пилообразные фонари
-        const t = (k + 0.5) / 6, c = Math.cos(yaw), s = Math.sin(yaw);
-        const lx = -w / 2 + w * t, ox = x + lx * c + 0 * s, oz = z - lx * s;
-        B.box(ox, h + 2.6, oz, w / 7, 5.2, d * 0.96, yaw);
+      // Нижняя прогулочная полка у воды
+      B.box(edgeX + side * 3.5, 0.4, 0, 7, 2.2, RL, 0);
+      // Основная набережная стена
+      B.box(edgeX + side * 11.5, 1.5, 0, 9, 3.2, RL, 0);
+      granGeos.push(B.build());
+
+      // Светлый гранитный парапет + тумбы каждые 28 м
+      const BP = new GB();
+      BP.box(edgeX + side * 7.4, 3.55, 0, 0.75, 0.95, RL, 0);
+      for (let z = -RL / 2 + 20; z < RL / 2 - 20; z += 28) {
+        BP.box(edgeX + side * 7.4, 3.85, z, 1.35, 1.45, 1.35, 0);
       }
-      dark.push(B.build());
+      lightGeos.push(BP.build());
     }
-    // эстакада труб
-    for (let i = 0; i < 30; i++) {
-      const a0 = THREE.MathUtils.degToRad(52 + i * 2.6), a1 = THREE.MathUtils.degToRad(52 + (i + 1) * 2.6);
-      const A = new THREE.Vector3(Math.cos(a0) * 1272, 7, Math.sin(a0) * 1272), Bv = new THREE.Vector3(Math.cos(a1) * 1272, 7, Math.sin(a1) * 1272);
-      copper.push(tube([A, Bv], 1.25, 8));
-      if (i % 3 === 0) dark.push(new THREE.BoxGeometry(0.8, 7, 0.8).translate(A.x, 3.5, A.z));
-    }
-    // водонапорная башня и кран
-    const [wx, wz] = at(94, 1402);
-    for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + 0.78; dark.push(new THREE.CylinderGeometry(0.45, 0.6, 36, 6).translate(wx + Math.cos(a) * 5, 18, wz + Math.sin(a) * 5)); }
-    { const B = new GB(); revolve(B, [[0, 36], [8, 36], [8, 48], [7, 52], [0, 55]], 20, { smooth: false }); steel.push(B.build().translate(wx, 0, wz)); }
-    { const [kx, kz] = at(58, 1396); const B = new GB(); B.box(kx, 22, kz, 2.2, 44, 2.2, 0.4); B.box(kx, 44, kz, 46, 2.4, 2.4, 0.4); dark.push(B.build()); }
-    const add = (list, mat, cast) => { if (list.length) { const m = new THREE.Mesh(merge(list), mat); m.castShadow = cast; m.receiveShadow = true; g.add(m); } };
-    add(steel, M.steel, true); add(dark, M.concreteDark, true); add(brass, M.brass, false); add(copper, M.copper, false);
+    const q1 = new THREE.Mesh(merge(granGeos), M.granite);
+    q1.castShadow = true; q1.receiveShadow = true;
+    const q2 = new THREE.Mesh(merge(lightGeos), M.graniteLight);
+    q2.castShadow = true; q2.receiveShadow = true;
+    group.add(q1, q2);
   }
 
-  // паровые клапаны по кромкам платформ
-  for (const [pid, degs] of [["core", [30, 120, 210, 300]], ["ringB", [15, 105, 195, 285]], ["ringC", [40, 160, 250, 340]], ["ringD", [70, 200]]]) {
-    const p = byId[pid];
-    for (const deg of degs) { const a = THREE.MathUtils.degToRad(deg); vents.push({ pos: new THREE.Vector3(Math.cos(a) * (p.rOut - 8), p.y + 1.2, Math.sin(a) * (p.rOut - 8)), type: "steam" }); }
-  }
-  void turbineRings;
+  // ── 3. ПРОСПЕКТЫ (мокрый асфальт + разметка + гранитные тротуары) ──
+  const roadGeos = [];
+  const curbGeos = [];
+  const markGeos = [];
+  const markMat = M.std({ color: 0xeaece8, roughness: 0.55, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const roadData = [];
 
-  return { group, vents, masts, update() {} };
+  for (const rd of ROADS) {
+    if (rd.type === "boulevard" || rd.type === "bridge") continue;
+    const dx = rd.x1 - rd.x0, dz = rd.z1 - rd.z0;
+    const len = Math.hypot(dx, dz);
+    const ang = Math.atan2(dx, dz);
+    const cx = (rd.x0 + rd.x1) / 2, cz = (rd.z0 + rd.z1) / 2;
+
+    // Асфальтовое полотно
+    const B = new GB();
+    B.box(cx, 0.06, cz, rd.width, 0.12, len, ang);
+    roadGeos.push(B.build());
+
+    // Гранитные тротуары и бордюры по краям
+    const cos = Math.cos(ang), sin = Math.sin(ang);
+    for (const side of [-1, 1]) {
+      const sw = 3.2;
+      const offset = (rd.width / 2 + sw / 2) * side;
+      const tx = cx + cos * offset;
+      const tz = cz - sin * offset;
+      const BT = new GB();
+      BT.box(tx, 0.14, tz, sw, 0.24, len, ang);
+      curbGeos.push(BT.build());
+    }
+
+    // Двойная сплошная + пунктирная разметка полос
+    if (rd.lanes > 0) {
+      const BC = new GB();
+      // Центральная двойная сплошная
+      for (const s of [-0.22, 0.22]) {
+        BC.box(cx + cos * s, 0.135, cz - sin * s, 0.14, 0.02, len, ang);
+      }
+      // Краевые сплошные
+      for (const side of [-1, 1]) {
+        const off = (rd.width / 2 - 0.65) * side;
+        BC.box(cx + cos * off, 0.135, cz - sin * off, 0.14, 0.02, len, ang);
+      }
+      markGeos.push(BC.build());
+
+      // Пунктир между полосами
+      if (rd.lanes >= 2) {
+        const laneW = (rd.width - 2) / (rd.lanes * 2);
+        const nMarks = Math.floor(len / 14);
+        const BD = new GB();
+        for (let lane = 1; lane < rd.lanes; lane++) {
+          for (const side of [-1, 1]) {
+            const off = side * lane * laneW;
+            for (let i = 0; i < nMarks; i++) {
+              const t = (i + 0.5) / nMarks;
+              const mx = rd.x0 + dx * t + cos * off;
+              const mz = rd.z0 + dz * t - sin * off;
+              BD.box(mx, 0.135, mz, 0.13, 0.02, 5.2, ang);
+            }
+          }
+        }
+        markGeos.push(BD.build());
+      }
+    }
+
+    roadData.push({ cx, cz, width: rd.width, len, ang, type: rd.type, lanes: rd.lanes });
+  }
+
+  if (roadGeos.length) {
+    const roads = new THREE.Mesh(merge(roadGeos), M.asphalt);
+    roads.receiveShadow = true;
+    roads.name = "roads";
+    group.add(roads);
+  }
+  if (curbGeos.length) {
+    const curbs = new THREE.Mesh(merge(curbGeos), M.graniteLight);
+    curbs.receiveShadow = true;
+    curbs.name = "sidewalks";
+    group.add(curbs);
+  }
+  if (markGeos.length) {
+    const marks = new THREE.Mesh(merge(markGeos), markMat);
+    marks.name = "road-markings";
+    group.add(marks);
+  }
+
+  // ── 4. ВОДНО-ЗЕЛЁНЫЙ БУЛЬВАР НУРЖОЛ (террасы, фонтаны, крытые галереи, аллеи) ──
+  {
+    const granGeos = [], lightGeos = [], lawnGeos = [], fWaterGeos = [], steelGeos = [], glassGeos = [];
+    // Сегменты бульвара (чисто разведены вокруг проспектов -760, -430, +90 и площадей)
+    const segments = [
+      { x0: -835, x1: -780 }, // Хан Шатыр → Туран
+      { x0: -740, x1: -618 }, // Туран → Круглая площадь
+      { x0: -502, x1: -450 }, // КМГ → Кабанбай
+      { x0: -410, x1: -56  }, // Кабанбай → Байтерек (главная прогулочная зона!)
+      { x0: +56,  x1: +70  }, // Байтерек → Мәңгілік Ел
+      { x0: +110, x1: +510 }, // Мәңгілік Ел → Дом Министерств → Акорда
+    ];
+
+    for (const seg of segments) {
+      const len = seg.x1 - seg.x0;
+      const cx = (seg.x0 + seg.x1) / 2;
+
+      // Нижняя гранитная терраса + центральный променад
+      const BG = new GB();
+      BG.box(cx, 0.16, 0, len, 0.32, 74, 0);
+      granGeos.push(BG.build());
+
+      const BL = new GB();
+      BL.box(cx, 0.34, 0, len, 0.08, 26, 0);
+      lightGeos.push(BL.build());
+
+      // Газоны и цветники по обе стороны променада
+      if (len > 28) {
+        for (const lz of [-24, 24]) {
+          const g = meterPlane(len - 6, 14, 1, 1);
+          g.translate(cx, 0.36, lz);
+          lawnGeos.push(g);
+        }
+      }
+
+      // Поющие фонтаны с бирюзовой водой на длинных участках
+      if (len >= 90) {
+        const count = Math.floor(len / 85);
+        for (let i = 0; i < count; i++) {
+          const fx = seg.x0 + ((i + 0.5) / count) * len;
+          const FB = new GB();
+          revolve(FB, [[0, 0.34], [8.5, 0.34], [9.2, 0.95], [8.4, 0.95], [8.0, 0.52], [0, 0.52]], 20, { smooth: false });
+          lightGeos.push(FB.build().translate(fx, 0, 0));
+          // Водное зеркало бассейна фонтана
+          const fw = new THREE.CylinderGeometry(7.9, 7.9, 0.08, 20).translate(fx, 0.82, 0);
+          fWaterGeos.push(fw);
+        }
+      }
+
+      // Знаменитые крытые стеклянные галереи Водно-Зелёного бульвара (на центральном отрезке)
+      if (seg.x0 === -410 || seg.x0 === 110) {
+        const gLen = Math.min(len - 40, 260);
+        for (const gz of [-34, 34]) {
+          const BS = new GB();
+          BS.box(cx, 5.2, gz, gLen, 0.45, 7.5, 0);
+          for (let px = cx - gLen / 2 + 8; px <= cx + gLen / 2 - 8; px += 18) {
+            BS.box(px, 2.6, gz - 3.2, 0.45, 5.0, 0.45, 0);
+            BS.box(px, 2.6, gz + 3.2, 0.45, 5.0, 0.45, 0);
+          }
+          steelGeos.push(BS.build());
+          const BGl = new GB();
+          BGl.box(cx, 5.55, gz, gLen - 2, 0.18, 7.8, 0);
+          glassGeos.push(BGl.build());
+        }
+      }
+    }
+
+    // Круглая площадь (Round Square, x=-560, z=0) — гранитный мощёный круг с фонтаном
+    {
+      const BR = new GB();
+      revolve(BR, [[0, 0], [82, 0], [82, 0.32], [0, 0.32]], 48, { smooth: false });
+      lightGeos.push(BR.build().translate(-560, 0, 0));
+      const BF = new GB();
+      revolve(BF, [[0, 0.32], [18, 0.32], [19, 1.1], [17.5, 1.1], [17, 0.55], [0, 0.55]], 32, { smooth: false });
+      granGeos.push(BF.build().translate(-560, 0, 0));
+      fWaterGeos.push(new THREE.CylinderGeometry(16.8, 16.8, 0.1, 32).translate(-560, 0.92, 0));
+    }
+
+    const addM = (list, mat, cast = false) => {
+      if (!list.length) return;
+      const m = new THREE.Mesh(merge(list), mat);
+      m.castShadow = cast; m.receiveShadow = true;
+      group.add(m);
+    };
+    addM(granGeos, M.granite, false);
+    addM(lightGeos, M.graniteLight, true);
+    addM(lawnGeos, M.grass, false);
+    addM(fWaterGeos, M.turquoise, false);
+    addM(steelGeos, M.whitePaint, true);
+    addM(glassGeos, M.glassClear, false);
+  }
+
+  // ── 4б. РЕАЛЬНЫЕ УЛИЧНЫЕ ФОНАРИ И АЛЛЕЙНЫЕ ДЕРЕВЬЯ ВДОЛЬ ПРОСПЕКТОВ ──
+  {
+    const lampMatrices = [];
+    const treeMatrices = [];
+    for (const rd of ROADS) {
+      if (rd.type === "bridge") continue;
+      const dx = rd.x1 - rd.x0, dz = rd.z1 - rd.z0;
+      const len = Math.hypot(dx, dz);
+      const ang = Math.atan2(dx, dz);
+      const cos = Math.cos(ang), sin = Math.sin(ang);
+      const step = rd.type === "boulevard" ? 42 : 52;
+      const count = Math.floor(len / step);
+      for (let i = 1; i < count; i++) {
+        const t = i / count;
+        const bx = rd.x0 + dx * t, bz = rd.z0 + dz * t;
+        // Пропуск у центральных перекрёстков и площадей
+        if (Math.abs(bx) < 58 && Math.abs(bz) < 58) continue;
+        if (Math.abs(bx + 560) < 92 && Math.abs(bz) < 92) continue;
+        if (Math.abs(bx - 590) < 95 && Math.abs(bz) < 95) continue;
+        if (Math.abs(bx - RX) < RW / 2 + 24) continue;
+        const off = rd.type === "boulevard" ? 18 : rd.width / 2 + 2.2;
+        for (const side of [-1, 1]) {
+          const lx = bx + cos * off * side;
+          const lz = bz - sin * off * side;
+          lampMatrices.push(place(lx, 0.2, lz, ang - side * (Math.PI / 2)));
+        }
+        if (rd.type === "boulevard") {
+          for (const side of [-1, 1]) {
+            const tx = bx + cos * 24 * side;
+            const tz = bz - sin * 24 * side;
+            const sc = 8.5 + ((i * 37) % 10) * 0.35;
+            treeMatrices.push(place(tx, 0.32, tz, (i * 1.7) % 6.28, sc, sc * 1.08, sc));
+          }
+        }
+      }
+    }
+    if (lampMatrices.length) {
+      const stem = new THREE.CylinderGeometry(0.11, 0.17, 8.2, 6).translate(0, 4.1, 0);
+      const arm = new THREE.BoxGeometry(0.14, 0.14, 2.0).translate(0, 8.1, 0.9);
+      const base = new THREE.CylinderGeometry(0.32, 0.42, 0.7, 6).translate(0, 0.35, 0);
+      const poles = new THREE.InstancedMesh(merge([stem, arm, base]), M.darkMetal, lampMatrices.length);
+      const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.42, 0.18, 0.88).translate(0, 7.98, 1.85), M.glow(0xffe0ad, 5.2), lampMatrices.length);
+      lampMatrices.forEach((m, i) => { poles.setMatrixAt(i, m); heads.setMatrixAt(i, m); });
+      poles.frustumCulled = heads.frustumCulled = false;
+      group.add(poles, heads);
+    }
+    if (treeMatrices.length) {
+      const p1 = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
+      const p2 = new THREE.PlaneGeometry(1, 1).rotateY(Math.PI / 2).translate(0, 0.5, 0);
+      const treeMat = M.std({ map: leafSprite(256, 23), alphaTest: 0.42, roughness: 0.88, metalness: 0, side: THREE.DoubleSide });
+      const trees = new THREE.InstancedMesh(merge([p1, p2]), treeMat, treeMatrices.length);
+      treeMatrices.forEach((m, i) => trees.setMatrixAt(i, m));
+      trees.frustumCulled = false; trees.receiveShadow = true;
+      group.add(trees);
+    }
+  }
+
+  // ── 5. ТРИ РЕАЛЬНЫХ МОСТА ЧЕРЕЗ РЕКУ ЕСИЛЬ ──
+  const bridgeData = ROADS.filter((r) => r.type === "bridge");
+  const bridgeGeos = { deck: [], road: [], white: [], steel: [], wood: [], neon: [] };
+
+  for (const br of bridgeData) {
+    const len = Math.abs(br.x1 - br.x0);
+    const cx = (br.x0 + br.x1) / 2;
+    const cz = br.z0;
+    const w = br.width;
+
+    if (br.style === "atyrau") {
+      // ★ БИОНИЧЕСКИЙ ПЕШЕХОДНЫЙ МОСТ «АТЫРАУ» (знаменитый «рыбный» параметрический мост!) ★
+      const deckY = 4.6;
+      const BD = new GB();
+      BD.box(cx, deckY - 0.65, cz, len, 1.3, w * 0.72, 0);
+      bridgeGeos.white.push(BD.build());
+      // Деревянный настил пешеходного моста
+      const BW = new GB();
+      BW.box(cx, deckY + 0.08, cz, len - 2, 0.16, w * 0.62, 0);
+      bridgeGeos.wood.push(BW.build());
+      // Береговые опоры
+      for (const px of [0.16, 0.84]) {
+        const BP = new GB();
+        BP.box(br.x0 + len * px, 1.2, cz, 4.5, 7.5, w * 0.5, 0);
+        bridgeGeos.deck.push(BP.build());
+      }
+      // 26 волнообразных параметрических белых рёбер-лепестков (силуэт осетра!)
+      const nRibs = 26;
+      const spineTop = [], spineL = [], spineR = [];
+      for (let i = 0; i <= nRibs; i++) {
+        const t = i / nRibs;
+        const rx = br.x0 + len * t;
+        // Волнообразная высота и ширина оболочки (максимум в центре, сужение к берегам)
+        const env = Math.sin(t * Math.PI);
+        const wave = 1.0 + 0.24 * Math.sin(t * Math.PI * 3.0);
+        const archH = 5.0 + env * 13.5 * wave;
+        const halfW = w * 0.36 + env * 4.2 * (1 + 0.2 * Math.cos(t * Math.PI * 2.0));
+        const tilt = Math.sin(t * Math.PI * 2.0) * 2.2;
+        const pts = [];
+        for (let k = 0; k <= 12; k++) {
+          const a = (k / 12) * Math.PI;
+          const pz = cz - Math.cos(a) * halfW + tilt * Math.sin(a);
+          const py = deckY + Math.sin(a) * archH;
+          pts.push(new THREE.Vector3(rx, py, pz));
+        }
+        bridgeGeos.white.push(tube(pts, 0.28 + env * 0.18, 6));
+        spineTop.push(pts[6]);
+        spineL.push(pts[3]);
+        spineR.push(pts[9]);
+      }
+      // Продольные стрингера бионической оболочки + ночная циановая подсветка
+      bridgeGeos.white.push(tube(spineTop, 0.32, 6));
+      bridgeGeos.white.push(tube(spineL, 0.22, 5));
+      bridgeGeos.white.push(tube(spineR, 0.22, 5));
+      bridgeGeos.neon.push(tube(spineTop.map((p) => new THREE.Vector3(p.x, p.y - 0.35, p.z)), 0.14, 4));
+    } else if (br.style === "cable") {
+      // ★ ГЛАВНЫЙ ЦЕРЕМОНИАЛЬНЫЙ ВАНТОВЫЙ МОСТ (ось Акорда — Пирамида, z=0) ★
+      const deckY = 4.8;
+      const BD = new GB();
+      BD.box(cx, deckY - 1.0, cz, len, 2.0, w, 0);
+      // Опоры в реке
+      for (const px of [0.22, 0.5, 0.78]) {
+        BD.box(br.x0 + len * px, 0.5, cz, 4.5, 9.5, w * 0.42, 0);
+      }
+      bridgeGeos.deck.push(BD.build());
+
+      // Асфальтовое покрытие моста
+      const BR = new GB();
+      BR.box(cx, deckY + 0.06, cz, len, 0.12, w - 3.6, 0);
+      bridgeGeos.road.push(BR.build());
+
+      // Два стройных белых А-образных пилона высотой 56 м
+      for (const sx of [-1, 1]) {
+        const pylonX = cx + sx * 36;
+        const pylonH = 56;
+        for (const sz of [-1, 1]) {
+          bridgeGeos.white.push(tube([
+            new THREE.Vector3(pylonX, deckY - 1, cz + sz * (w * 0.52)),
+            new THREE.Vector3(pylonX, pylonH, cz + sz * 1.4),
+          ], 1.35, 8));
+        }
+        // Перемычки А-пилона
+        const BC = new GB();
+        BC.box(pylonX, pylonH - 2, cz, 2.8, 3.2, 5.5, 0);
+        BC.box(pylonX, 28, cz, 2.0, 2.2, w * 0.62, 0);
+        bridgeGeos.white.push(BC.build());
+
+        // Двухсторонний веер вант
+        for (let i = 1; i <= 8; i++) {
+          const t = i / 9;
+          for (const dir of [-1, 1]) {
+            const cableX = pylonX + dir * t * 56;
+            if (cableX < br.x0 + 4 || cableX > br.x1 - 4) continue;
+            for (const sz of [-1, 1]) {
+              bridgeGeos.steel.push(tube([
+                new THREE.Vector3(pylonX, pylonH - 3 - i * 2.1, cz + sz * 1.6),
+                new THREE.Vector3(cableX, deckY + 0.4, cz + sz * (w * 0.48)),
+              ], 0.09, 4));
+            }
+          }
+        }
+        bridgeGeos.neon.push(new THREE.BoxGeometry(0.6, pylonH - 8, 0.6).translate(pylonX, pylonH / 2 + 4, cz));
+      }
+      // Перила главного моста
+      for (const side of [-1, 1]) {
+        const rz = cz + side * (w / 2 - 0.35);
+        bridgeGeos.steel.push(new THREE.BoxGeometry(len, 0.16, 0.16).translate(cx, deckY + 1.15, rz));
+        bridgeGeos.neon.push(new THREE.BoxGeometry(len, 0.12, 0.12).translate(cx, deckY - 0.25, rz));
+      }
+    } else {
+      // ★ АРОЧНЫЙ МОСТ САРАЙШЫК (z = +280) ★
+      const deckY = 4.6;
+      const BD = new GB();
+      BD.box(cx, deckY - 0.9, cz, len, 1.8, w, 0);
+      for (const px of [0.22, 0.78]) {
+        BD.box(br.x0 + len * px, 0.5, cz, 4.5, 9.0, w * 0.42, 0);
+      }
+      bridgeGeos.deck.push(BD.build());
+      const BR = new GB();
+      BR.box(cx, deckY + 0.06, cz, len, 0.12, w - 3.2, 0);
+      bridgeGeos.road.push(BR.build());
+
+      // Две параболические стальные арки + вертикальные подвесы
+      for (const side of [-1, 1]) {
+        const az = cz + side * (w * 0.48);
+        const archPts = [];
+        for (let i = 0; i <= 24; i++) {
+          const t = i / 24;
+          const ax = br.x0 + 18 + (len - 36) * t;
+          const ay = deckY + Math.sin(t * Math.PI) * 24;
+          archPts.push(new THREE.Vector3(ax, ay, az));
+        }
+        bridgeGeos.white.push(tube(archPts, 0.85, 8));
+        for (let i = 2; i < 22; i += 2) {
+          const p = archPts[i];
+          bridgeGeos.steel.push(tube([p, new THREE.Vector3(p.x, deckY, az)], 0.11, 4));
+        }
+      }
+    }
+  }
+
+  const addBatch = (list, mat, cast = true) => {
+    if (!list.length) return;
+    const m = new THREE.Mesh(merge(list), mat);
+    m.castShadow = cast;
+    m.receiveShadow = true;
+    group.add(m);
+  };
+  addBatch(bridgeGeos.deck, M.granite, true);
+  addBatch(bridgeGeos.road, M.asphalt, false);
+  addBatch(bridgeGeos.white, M.whitePaint, true);
+  addBatch(bridgeGeos.steel, M.steel, true);
+  addBatch(bridgeGeos.wood, M.wood, false);
+  addBatch(bridgeGeos.neon, M.neon(0x00f5ff, 4.2, 0.0), false);
+
+  return {
+    group,
+    waterMat,
+    roadData,
+    vents: [],
+    update(dt, time, _cam, cyberMix) {
+      void dt; void time; void _cam; void cyberMix;
+    },
+  };
 }
-function rMid(plat) { return (plat.rIn + plat.rOut) / 2; }

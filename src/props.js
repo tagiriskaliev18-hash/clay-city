@@ -1,50 +1,28 @@
 // ============================================================
-// CLAY CITY v3 — уличная жизнь и детализация:
-//   - уличные фонари вдоль всех кольцевых дорог и проспектов
-//   - деревья (crossed-billboard) на бульваре Нуржол и в парках
-//   - анимированный трафик автомобилей с фарами и стоп-огнями
-//   - набережные перила по кромкам парящих платформ
-// Всё на InstancedMesh, минимум draw calls.
+// ASTANA 2077 — наземная городская жизнь на плоской земле y = 0:
+//   - реалистичный поток автомобилей с фарами и стоп-огнями по
+//     прямым проспектам и мостам ROADS (обе стороны, полосы)
+//   - низкие архитектурные болларды подсветки у QazaqGaz и Байтерека
+// Деревья и высокие уличные фонари строит city.js (без дублирования).
+// Всегда видимо в обоих режимах (Реальная Астана и Cyberpunk 2077).
 // ============================================================
 import * as THREE from "three";
-import { PLATFORMS, ROAD, BOULEVARD, intersectsReserved } from "./config.js";
-import { bandRange, avenues, blockClear, isBoulevard, TAU } from "./grid.js";
+import { ROADS, LANDMARKS } from "./config.js";
 import { rng, between, place, merge } from "./geom.js";
-import { leafSprite } from "./textures.js";
 
-const CURB = ROAD.curb;
-
-function fract(x) { return x - Math.floor(x); }
-function gHash(x, y) {
-  let px = fract(x * 123.34), py = fract(y * 345.45);
-  const d = px * (px + 34.345) + py * (py + 34.345);
-  px += d; py += d;
-  return fract(px * py);
-}
-function isParkBlock(i, k) {
-  return gHash(i * 1.37 + 0.5, k * 1.37 + 0.5) <= 0.26;
-}
-
-/** Геометрия уличного фонаря (столб + изогнутый кронштейн). */
-function lampPoleGeo() {
-  const stem = new THREE.CylinderGeometry(0.11, 0.18, 7.6, 6).translate(0, 3.8, 0);
-  const arm = new THREE.BoxGeometry(0.14, 0.14, 2.2).translate(0, 7.55, 1.0);
-  const base = new THREE.CylinderGeometry(0.32, 0.42, 0.7, 6).translate(0, 0.35, 0);
-  return merge([stem, arm, base]);
-}
-
-/** Скрещённые плоскости для дерева (crossed-billboard). */
-function treeGeo() {
-  const p1 = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
-  const p2 = new THREE.PlaneGeometry(1, 1).rotateY(Math.PI / 2).translate(0, 0.5, 0);
-  return merge([p1, p2]);
-}
-
-/** Силуэт автомобиля (кузов + кабина). */
+/** Силуэт современного городского автомобиля (кузов + кабина + колёсные арки). */
 function carBodyGeo() {
-  const low = new THREE.BoxGeometry(1.9, 0.72, 4.4).translate(0, 0.56, 0);
-  const cab = new THREE.BoxGeometry(1.65, 0.62, 2.1).translate(0, 1.18, -0.2);
+  const low = new THREE.BoxGeometry(1.88, 0.64, 4.45).translate(0, 0.52, 0);
+  const cab = new THREE.BoxGeometry(1.62, 0.56, 2.15).translate(0, 1.08, -0.18);
   return merge([low, cab]);
+}
+
+/** Геометрия архитектурного пешеходного болларда (столбик 1.05 м). */
+function bollardPostGeo() {
+  const base = new THREE.CylinderGeometry(0.14, 0.17, 0.14, 8).translate(0, 0.07, 0);
+  const body = new THREE.CylinderGeometry(0.10, 0.11, 0.78, 8).translate(0, 0.52, 0);
+  const cap = new THREE.CylinderGeometry(0.11, 0.11, 0.08, 8).translate(0, 1.04, 0);
+  return merge([base, body, cap]);
 }
 
 export function buildProps(scene, M, _ctx) {
@@ -53,165 +31,157 @@ export function buildProps(scene, M, _ctx) {
   scene.add(group);
   const r = rng(42077);
 
-  // ---------- 1. УЛИЧНЫЕ ФОНАРИ ----------
-  const lampMats = [];
-  for (const plat of PLATFORMS) {
-    for (const rr of plat.ringRoads) {
-      const count = Math.max(12, Math.round((TAU * rr) / ROAD.lampStep));
-      for (let i = 0; i < count; i++) {
-        const a = (i / count) * TAU;
-        for (const side of [-1, 1]) {
-          const rad = rr + side * (ROAD.ringHalf + 1.2);
-          const x = Math.cos(a) * rad, z = Math.sin(a) * rad;
-          if (intersectsReserved(x, z, 2, 2)) continue;
-          if (isBoulevard(plat, x, z)) continue;
-          // кронштейн смотрит на проезжую часть
-          const yaw = Math.atan2(-side * Math.cos(a), -side * Math.sin(a));
-          lampMats.push(place(x, plat.y + CURB, z, yaw));
-        }
-      }
-    }
-  }
-  if (lampMats.length) {
-    const poles = new THREE.InstancedMesh(lampPoleGeo(), M.darkMetal, lampMats.length);
-    const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.45, 0.2, 0.95).translate(0, 7.42, 2.0), M.glow(0xffd9a0, 5.5), lampMats.length);
-    lampMats.forEach((m, i) => { poles.setMatrixAt(i, m); heads.setMatrixAt(i, m); });
-    poles.frustumCulled = heads.frustumCulled = false;
-    group.add(poles, heads);
-  }
-
-  // ---------- 2. ДЕРЕВЬЯ (бульвар Нуржол + парковые кварталы) ----------
-  const treeMats = [];
-  // аллеи вдоль бульвара Нуржол (core + ringB)
-  for (let x = -220; x <= 530; x += 18) {
-    if (Math.abs(x) < 76) continue; // площадь Байтерека
-    for (const z of [-24, -8, 8, 24]) {
-      const jx = x + between(r, -2.5, 2.5), jz = z + between(r, -2.0, 2.0);
-      if (intersectsReserved(jx, jz, 3, 3)) continue;
-      const sc = between(r, 7.5, 12.5);
-      treeMats.push(place(jx, CURB, jz, r() * TAU, sc, sc * between(r, 0.9, 1.25), sc));
-    }
-  }
-  for (let x = 635; x <= 685; x += 16) {
-    for (const z of [-24, -10, 10, 24]) {
-      const sc = between(r, 7.5, 11.5);
-      treeMats.push(place(x, 40 + CURB, z, r() * TAU, sc, sc, sc));
-    }
-  }
-  // парковые кварталы по всем платформам
-  for (const plat of PLATFORMS) {
-    for (let i = 0; i < plat.ringRoads.length; i++) {
-      const clr = blockClear(plat, i);
-      if (!clr) continue;
-      const n = avenues(plat, i), cell = TAU / n;
-      const rMid = (clr.rIn + clr.rOut) / 2;
-      for (let k = 0; k < n; k++) {
-        if (!isParkBlock(i, k)) continue;
-        const a0 = -Math.PI + k * cell, a1 = a0 + cell;
-        const padA = Math.asin(Math.min(0.45, (ROAD.aveHalf + ROAD.walk + 4) / rMid));
-        if (a1 - padA <= a0 + padA) continue;
-        const treesInPark = plat.id === "core" ? 7 : 6;
-        for (let t = 0; t < treesInPark; t++) {
-          const aa = between(r, a0 + padA, a1 - padA);
-          const rr = between(r, clr.rIn + 4, clr.rOut - 4);
-          const x = Math.cos(aa) * rr, z = Math.sin(aa) * rr;
-          if (intersectsReserved(x, z, 4, 4) || isBoulevard(plat, x, z)) continue;
-          const sc = between(r, 8, 14);
-          treeMats.push(place(x, plat.y + CURB, z, r() * TAU, sc, sc * between(r, 0.85, 1.25), sc));
-        }
-      }
-    }
-  }
-  if (treeMats.length) {
-    const leafTex = leafSprite(256, 17);
-    const treeMat = M.std({
-      map: leafTex,
-      alphaTest: 0.42,
-      roughness: 0.88,
-      metalness: 0,
-      side: THREE.DoubleSide,
-    });
-    const trees = new THREE.InstancedMesh(treeGeo(), treeMat, treeMats.length);
-    treeMats.forEach((m, i) => trees.setMatrixAt(i, m));
-    trees.frustumCulled = false;
-    trees.castShadow = false;
-    trees.receiveShadow = true;
-    group.add(trees);
-  }
-
-  // ---------- 3. ПЕРИЛА НАБЕРЕЖНЫХ ПО КРОМКАМ ПЛАТФОРМ ----------
-  const railMats = [];
-  for (const plat of PLATFORMS) {
-    const rads = plat.rIn > 0 ? [plat.rOut - 3.6, plat.rIn + 3.6] : [plat.rOut - 3.6];
-    for (const rr of rads) {
-      const n = Math.round((TAU * rr) / 14);
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * TAU;
-        const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
-        railMats.push(place(x, plat.y + 0.55, z, Math.atan2(x, z)));
-      }
-    }
-  }
-  if (railMats.length) {
-    const post = new THREE.InstancedMesh(new THREE.BoxGeometry(0.18, 1.1, 0.18), M.brass, railMats.length);
-    railMats.forEach((m, i) => post.setMatrixAt(i, m));
-    post.frustumCulled = false;
-    group.add(post);
-  }
-
-  // ---------- 4. АНИМИРОВАННЫЙ ТРАФИК (АВТОМОБИЛИ С ФАРАМИ И СТОП-ОГНЯМИ) ----------
+  // ---------- 1. НАЗЕМНЫЙ АВТОТРАФИК ПО ПРЯМЫМ ПРОСПЕКТАМ И МОСТАМ ROADS ----------
   const cars = [];
-  const carPalette = [0x1c222a, 0xd8dce0, 0x3b4856, 0x8a2824, 0x264866, 0xc2a878, 0x15181c];
-  for (const plat of PLATFORMS) {
-    for (const rr of plat.ringRoads) {
-      const count = Math.max(8, Math.round(rr / 42));
-      for (let i = 0; i < count; i++) {
-        const dir = i % 2 === 0 ? 1 : -1;
-        const laneR = rr + dir * 3.6;
-        const speed = between(r, 14, 26) / laneR; // угловая скорость рад/с
+  const carPalette = [
+    0xf0f2f5, // pearl white (популярный в Астане)
+    0xd4d8de, // silver
+    0x1c2128, // obsidian black
+    0x3a434f, // graphite
+    0x203b5a, // deep navy
+    0x882624, // burgundy
+    0xc5b89e, // champagne
+    0x2a2e34, // dark metallic
+  ];
+
+  for (const road of ROADS) {
+    if (!road.lanes || road.lanes <= 0) continue;
+    const dx = road.x1 - road.x0;
+    const dz = road.z1 - road.z0;
+    const len = Math.hypot(dx, dz);
+    if (len < 60) continue;
+
+    const dirX = dx / len;
+    const dirZ = dz / len;
+    // Нормаль вправо по ходу от (x0,z0) к (x1,z1)
+    const rightX = -dirZ;
+    const rightZ = dirX;
+
+    // Высота проезжей части: на мостах совпадает с настилом из city.js
+    const deckY = road.type === "bridge"
+      ? (road.style === "cable" ? 4.92 : 4.72)
+      : 0.04;
+
+    const lanesPerSide = Math.max(1, Math.min(3, Math.floor(road.lanes / 2) || 1));
+    const usableHalf = Math.max(3.2, road.width * 0.5 - 2.4);
+    const laneSpacing = lanesPerSide > 1 ? (usableHalf * 0.78) / lanesPerSide : 0;
+
+    // Плотность потока: ~1 машина на 75–95 м на каждую сторону
+    const countPerSide = Math.max(2, Math.round(len / (road.type === "bridge" ? 55 : 85)));
+
+    for (const dir of [1, -1]) {
+      const tx = dirX * dir;
+      const tz = dirZ * dir;
+      const yaw = Math.atan2(tx, tz);
+
+      for (let i = 0; i < countPerSide; i++) {
+        const laneIdx = i % lanesPerSide;
+        // Правостороннее движение: смещение вправо от вектора направления движения (tx, tz)
+        // Правый вектор для (tx, tz) равен (-tz, tx) = dir * (rightX, rightZ)
+        const offsetMag = Math.min(usableHalf - 1.1, 2.2 + laneIdx * Math.max(2.9, laneSpacing));
+        const offX = rightX * dir * offsetMag;
+        const offZ = rightZ * dir * offsetMag;
+
+        const baseT = (i + 0.15 + r() * 0.7) / countPerSide;
+        const speedMps = between(r, 11.5, 19.5) + laneIdx * 2.2; // м/с (42–75 км/ч)
         cars.push({
-          y: plat.y + 0.04,
-          r: laneR,
-          a: r() * TAU,
-          w: dir * speed,
+          x0: road.x0 + offX,
+          z0: road.z0 + offZ,
+          dx,
+          dz,
+          len,
+          y: deckY,
           dir,
+          yaw,
+          t0: baseT,
+          speedT: speedMps / len,
           color: carPalette[Math.floor(r() * carPalette.length)],
         });
       }
     }
   }
 
-  const carBody = new THREE.InstancedMesh(carBodyGeo(), M.std({ color: 0xffffff, roughness: 0.25, metalness: 0.72, envMapIntensity: 1.2 }), cars.length);
-  const headGeo = merge([
-    new THREE.BoxGeometry(0.36, 0.22, 0.12).translate(-0.62, 0.62, 2.22),
-    new THREE.BoxGeometry(0.36, 0.22, 0.12).translate(0.62, 0.62, 2.22),
-  ]);
-  const tailGeo = merge([
-    new THREE.BoxGeometry(0.42, 0.20, 0.12).translate(-0.62, 0.64, -2.22),
-    new THREE.BoxGeometry(0.42, 0.20, 0.12).translate(0.62, 0.64, -2.22),
-  ]);
-  const carHeads = new THREE.InstancedMesh(headGeo, M.neon(0xf2f8ff, 5.5, 0.15), cars.length);
-  const carTails = new THREE.InstancedMesh(tailGeo, M.neon(0xff2a1a, 5.0, 0.15), cars.length);
-  const tmpCol = new THREE.Color();
-  cars.forEach((c, i) => { carBody.setColorAt(i, tmpCol.setHex(c.color)); });
-  if (carBody.instanceColor) carBody.instanceColor.needsUpdate = true;
-  carBody.frustumCulled = carHeads.frustumCulled = carTails.frustumCulled = false;
-  group.add(carBody, carHeads, carTails);
+  let carBody = null, carHeads = null, carTails = null;
+  if (cars.length > 0) {
+    const bodyMat = M.std({ color: 0xffffff, roughness: 0.24, metalness: 0.72, envMapIntensity: 1.25 });
+    carBody = new THREE.InstancedMesh(carBodyGeo(), bodyMat, cars.length);
+    const headGeo = merge([
+      new THREE.BoxGeometry(0.36, 0.20, 0.12).translate(-0.62, 0.56, 2.24),
+      new THREE.BoxGeometry(0.36, 0.20, 0.12).translate(0.62, 0.56, 2.24),
+    ]);
+    const tailGeo = merge([
+      new THREE.BoxGeometry(0.42, 0.18, 0.12).translate(-0.62, 0.58, -2.24),
+      new THREE.BoxGeometry(0.42, 0.18, 0.12).translate(0.62, 0.58, -2.24),
+    ]);
+    carHeads = new THREE.InstancedMesh(headGeo, M.neon(0xf4f9ff, 5.2, 0.22), cars.length);
+    carTails = new THREE.InstancedMesh(tailGeo, M.neon(0xff2218, 4.8, 0.20), cars.length);
 
-  const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1), UP = new THREE.Vector3(0, 1, 0);
+    const tmpCol = new THREE.Color();
+    for (let i = 0; i < cars.length; i++) {
+      carBody.setColorAt(i, tmpCol.setHex(cars[i].color));
+    }
+    if (carBody.instanceColor) carBody.instanceColor.needsUpdate = true;
+
+    carBody.castShadow = true;
+    carBody.receiveShadow = true;
+    carBody.frustumCulled = carHeads.frustumCulled = carTails.frustumCulled = false;
+    carBody.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    carHeads.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    carTails.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    group.add(carBody, carHeads, carTails);
+  }
+
+  // ---------- 2. ПЕШЕХОДНЫЕ БОЛЛАРДЫ ПОДСВЕТКИ (QazaqGaz HQ и площадь Байтерека) ----------
+  const bollardMats = [];
+  // Парадная площадь QazaqGaz HQ (x: 235, z: 155) — вдоль южной (+Z) и западной (-X) аллей
+  const qg = LANDMARKS.qazaqGaz || { x: 235, z: 155 };
+  for (let bx = -24; bx <= 24; bx += 8) {
+    if (Math.abs(bx) < 6) continue; // проход на парадную лестницу
+    bollardMats.push(place(qg.x + bx, 0.02, qg.z + 44, 0));
+    bollardMats.push(place(qg.x + bx, 0.02, qg.z - 42, 0));
+  }
+  for (let bz = -24; bz <= 28; bz += 10) {
+    bollardMats.push(place(qg.x - 36, 0.02, qg.z + bz, 0));
+    bollardMats.push(place(qg.x + 36, 0.02, qg.z + bz, 0));
+  }
+  // Площадь вокруг Байтерека (x: 0, z: 0)
+  for (let a = 0; a < 16; a++) {
+    const ang = (a / 16) * Math.PI * 2;
+    const rad = 42;
+    bollardMats.push(place(Math.cos(ang) * rad, 0.34, Math.sin(ang) * rad, 0));
+  }
+  if (bollardMats.length) {
+    const posts = new THREE.InstancedMesh(bollardPostGeo(), M.darkMetal, bollardMats.length);
+    const bulbs = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.095, 0.095, 0.14, 8).translate(0, 0.94, 0),
+      M.glow(0xffe0a8, 4.5, 0xd8d0c0),
+      bollardMats.length
+    );
+    bollardMats.forEach((m, i) => { posts.setMatrixAt(i, m); bulbs.setMatrixAt(i, m); });
+    posts.frustumCulled = bulbs.frustumCulled = false;
+    group.add(posts, bulbs);
+  }
+
+  // ---------- АНИМАЦИЯ НАЗЕМНОГО ТРАФИКА ----------
+  const _m2 = new THREE.Matrix4();
+  const _q2 = new THREE.Quaternion();
+  const _p2 = new THREE.Vector3();
+  const _s2 = new THREE.Vector3(1, 1, 1);
+  const UP = new THREE.Vector3(0, 1, 0);
+
   function updateCars(time) {
+    if (!carBody) return;
     for (let i = 0; i < cars.length; i++) {
       const c = cars[i];
-      const a = c.a + c.w * time;
-      const x = Math.cos(a) * c.r, z = Math.sin(a) * c.r;
-      // касательный вектор движения: (-sin(a)*dir, cos(a)*dir)
-      const tx = -Math.sin(a) * c.dir, tz = Math.cos(a) * c.dir;
-      const yaw = Math.atan2(tx, tz);
-      _q.setFromAxisAngle(UP, yaw);
-      _m.compose(_p.set(x, c.y, z), _q, _s);
-      carBody.setMatrixAt(i, _m);
-      carHeads.setMatrixAt(i, _m);
-      carTails.setMatrixAt(i, _m);
+      let t = (c.t0 + c.dir * c.speedT * time) % 1;
+      if (t < 0) t += 1;
+      const x = c.x0 + c.dx * t;
+      const z = c.z0 + c.dz * t;
+      _q2.setFromAxisAngle(UP, c.yaw);
+      _m2.compose(_p2.set(x, c.y, z), _q2, _s2);
+      carBody.setMatrixAt(i, _m2);
+      carHeads.setMatrixAt(i, _m2);
+      carTails.setMatrixAt(i, _m2);
     }
     carBody.instanceMatrix.needsUpdate = true;
     carHeads.instanceMatrix.needsUpdate = true;
@@ -221,6 +191,7 @@ export function buildProps(scene, M, _ctx) {
 
   return {
     group,
+    carCount: cars.length,
     update(_dt, time) {
       updateCars(time);
     },

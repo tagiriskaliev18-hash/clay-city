@@ -1,16 +1,17 @@
 // ============================================================
-// CLAY CITY v3 — главные символы Астаны:
-//   1. Байтерек (105 м, золотой шар, решётчатый ствол)
-//   2. Хан Шатыр (150 м, наклонный шатёр-тент на стилобате)
-//   3. Дворец Мира и Согласия (Пирамида, 76 м, стеклянная вершина)
-//   4. Сфера «Нур Алем» (D=80 м, медиафасад diagrid с LED-волной)
+// ASTANA REAL v2 — landmarks.js
+// Главные символы Астаны:
+//   1. Байтерек (105 м, золотой шар D=22 м, белый гиперболоид)
+//   2. Хан Шатыр (150 м, наклонный полупрозрачный ETFE-шатёр)
+//   3. Дворец Мира и Согласия (Пирамида, 77 м, исправленные нормали + UV!)
+//   4. Сфера «Нур Алем» EXPO (D=80 м, diagrid с LED-волной)
 // ============================================================
 import * as THREE from "three";
-import { ZONES, PLATFORM_Y } from "./config.js";
-import { GB, rect, ngon, polyPrism, revolve, tube, bezier, merge } from "./geom.js";
+import { LANDMARKS } from "./config.js";
+import { GB, revolve, tube, bezier, merge } from "./geom.js";
 
 const TAU = Math.PI * 2;
-const zoneById = (id) => ZONES.find((z) => z.id === id);
+const L = LANDMARKS;
 
 function addMerged(parent, list, mat, cast = true, receive = true) {
   if (!list.length) return null;
@@ -23,120 +24,116 @@ function addMerged(parent, list, mat, cast = true, receive = true) {
 
 // ---------- 1. БАЙТЕРЕК (105 м) ----------
 function buildBayterek(parent, M) {
-  const z = zoneById("bayterek");
+  const P = L.bayterek;
   const g = new THREE.Group();
-  g.position.set(z.x, PLATFORM_Y[z.plat] || 0, z.z);
+  g.position.set(P.x, 0, P.z);
+  g.name = "landmark-bayterek";
   parent.add(g);
 
-  const marble = [], steel = [], brass = [], glass = [], glow = [];
+  const marble = [], granite = [], whiteSteel = [], brass = [], glass = [], glow = [];
 
-  // двухуровневый стилобат с круглой чашей и ступенями
+  // Монументальный двухуровневый стилобат с парадными лестницами по оси Нуржол
   {
     const B = new GB();
-    revolve(B, [[0, 0], [44, 0], [44, 1.4], [38, 1.4], [38, 3.2], [28, 3.2], [28, 5.2], [0, 5.2]], 48, { smooth: false });
+    revolve(B, [[0, 0], [45, 0], [45, 1.4], [39, 1.4], [39, 3.2], [29, 3.2], [29, 5.2], [0, 5.2]], 48, { smooth: false });
     marble.push(B.build());
-    // декоративные пандусы по 4 сторонам
+    // 4 ступенчатых марша (Восток/Запад/Север/Юг)
     for (let i = 0; i < 4; i++) {
       const a = (i * Math.PI) / 2;
       const B2 = new GB();
-      B2.box(Math.cos(a) * 35, 1.8, Math.sin(a) * 35, 14, 3.6, 14, a);
-      marble.push(B2.build());
+      B2.box(Math.cos(a) * 37, 1.6, Math.sin(a) * 37, 15, 3.2, 16, a);
+      granite.push(B2.build());
     }
-    // латунное кольцо фонтана
-    brass.push(new THREE.TorusGeometry(40.5, 0.45, 8, 64).rotateX(Math.PI / 2).translate(0, 1.6, 0));
-    brass.push(new THREE.TorusGeometry(28.2, 0.35, 8, 56).rotateX(Math.PI / 2).translate(0, 5.3, 0));
+    brass.push(new THREE.TorusGeometry(41.5, 0.35, 8, 64).rotateX(Math.PI / 2).translate(0, 1.55, 0));
+    brass.push(new THREE.TorusGeometry(29.1, 0.30, 8, 56).rotateX(Math.PI / 2).translate(0, 5.28, 0));
   }
 
-  // центральная остеклённая шахта лифта
+  // Панорамная остеклённая шахта лифта в центре ствола
   {
-    const cyl = new THREE.CylinderGeometry(3.8, 4.6, 78, 20).translate(0, 44, 0);
-    glass.push(cyl);
-    // светящиеся технологические кольца вдоль шахты
+    glass.push(new THREE.CylinderGeometry(3.8, 4.6, 79, 24).translate(0, 44.5, 0));
     for (let y = 16; y <= 76; y += 12) {
-      glow.push(new THREE.TorusGeometry(4.3, 0.22, 6, 24).rotateX(Math.PI / 2).translate(0, y, 0));
+      glow.push(new THREE.TorusGeometry(4.35, 0.22, 6, 24).rotateX(Math.PI / 2).translate(0, y, 0));
     }
   }
 
-  // белый решётчатый «ствол тополя» — 16 мощных изогнутых рёбер + перекрёстные диагонали
+  // Тонкая ажурная белая сетка-гиперболоид «ствол тополя» — 16 рёбер + корона-ветви
   const N = 16;
   const ribPts = [];
   for (let i = 0; i < N; i++) {
     const a = (i / N) * TAU;
     const ca = Math.cos(a), sa = Math.sin(a);
     const pts = bezier(
-      [ca * 21, 5.0, sa * 21],
-      [ca * 9.5, 28, sa * 9.5],
-      [ca * 6.2, 62, sa * 6.2],
-      [ca * 17.5, 92, sa * 17.5],
+      [ca * 21.5, 5.0, sa * 21.5],
+      [ca * 9.2, 28, sa * 9.2],
+      [ca * 6.0, 62, sa * 6.0],
+      [ca * 17.8, 92, sa * 17.8],
       20
     );
     ribPts.push(pts);
-    steel.push(tube(pts, 0.52, 6, { taper: (t) => 0.62 - 0.16 * Math.sin(t * Math.PI) }));
-    // верхние «ветви» короны, охватывающие золотой шар
+    whiteSteel.push(tube(pts, 0.48, 6, { taper: (t) => 0.65 - 0.18 * Math.sin(t * Math.PI) }));
     const tip = pts[pts.length - 1];
     const crownPts = bezier(
       [tip.x, tip.y, tip.z],
-      [ca * 19.5, 98, sa * 19.5],
-      [ca * 15.5, 103.5, sa * 15.5],
-      [ca * 10.5, 105.5, sa * 10.5],
+      [ca * 19.6, 98.5, sa * 19.6],
+      [ca * 15.2, 103.8, sa * 15.2],
+      [ca * 10.6, 105.6, sa * 10.6],
       8
     );
-    steel.push(tube(crownPts, 0.34, 5));
+    whiteSteel.push(tube(crownPts, 0.30, 5));
   }
 
-  // горизонтальные кольца жёсткости и спиральные диагонали
+  // Горизонтальные кольца и ажурные диагональные связи
   for (const idx of [3, 6, 9, 12, 15, 18, 20]) {
     const ring = [];
     for (let i = 0; i <= N; i++) ring.push(ribPts[i % N][idx]);
-    steel.push(tube(ring, 0.28, 5));
+    whiteSteel.push(tube(ring, 0.26, 5));
   }
   for (let i = 0; i < N; i++) {
     for (const [j0, j1] of [[2, 7], [7, 12], [12, 17], [17, 20]]) {
-      const a0 = ribPts[i][j0], b0 = ribPts[(i + 1) % N][j1];
-      const a1 = ribPts[(i + 1) % N][j0], b1 = ribPts[i][j1];
-      steel.push(tube([a0, b0], 0.18, 4));
-      steel.push(tube([a1, b1], 0.18, 4));
+      whiteSteel.push(tube([ribPts[i][j0], ribPts[(i + 1) % N][j1]], 0.16, 4));
+      whiteSteel.push(tube([ribPts[(i + 1) % N][j0], ribPts[i][j1]], 0.16, 4));
     }
   }
 
-  // ЗОЛОТОЙ ШАР (D = 22 м, центр на y = 92 м)
-  const orb = new THREE.Mesh(new THREE.SphereGeometry(11.2, 40, 28), M.gold);
+  // ЗОЛОТОЙ ШАР БАЙТЕРЕКА (D = 22 м, хамелеон-золото)
+  const orb = new THREE.Mesh(new THREE.SphereGeometry(11.2, 44, 32), M.gold);
   orb.position.set(0, 92, 0);
   orb.castShadow = true;
   orb.receiveShadow = true;
   g.add(orb);
 
-  // латунные меридианы-пояса на шаре и шпиль-антенна
-  brass.push(new THREE.TorusGeometry(11.35, 0.22, 6, 48).rotateX(Math.PI / 2).translate(0, 92, 0));
-  brass.push(new THREE.TorusGeometry(11.35, 0.18, 6, 48).rotateX(Math.PI / 2).translate(0, 96.5, 0));
-  brass.push(new THREE.TorusGeometry(11.35, 0.18, 6, 48).rotateX(Math.PI / 2).translate(0, 87.5, 0));
-  brass.push(new THREE.CylinderGeometry(0.12, 0.35, 10, 8).translate(0, 107.5, 0));
+  // Меридианы и шпиль
+  brass.push(new THREE.TorusGeometry(11.32, 0.20, 6, 48).rotateX(Math.PI / 2).translate(0, 92, 0));
+  brass.push(new THREE.TorusGeometry(11.32, 0.16, 6, 48).rotateX(Math.PI / 2).translate(0, 96.5, 0));
+  brass.push(new THREE.TorusGeometry(11.32, 0.16, 6, 48).rotateX(Math.PI / 2).translate(0, 87.5, 0));
+  brass.push(new THREE.CylinderGeometry(0.10, 0.34, 10, 8).translate(0, 107.8, 0));
 
-  // маячок на макушке
-  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.85, 10, 8), M.glow(0xffd27a, 6));
-  beacon.position.set(0, 112.8, 0);
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.82, 10, 8), M.glow(0xffd27a, 6));
+  beacon.position.set(0, 113.0, 0);
   g.add(beacon);
 
   addMerged(g, marble, M.marble, true, true);
-  addMerged(g, steel, M.whitePlate, true, true);
+  addMerged(g, granite, M.graniteLight, true, true);
+  addMerged(g, whiteSteel, M.whitePaint, true, true);
   addMerged(g, brass, M.brass, false, true);
-  addMerged(g, glass, M.glassDark, true, true);
-  addMerged(g, glow, M.neon(0x46f2ff, 4.2), false, false);
+  addMerged(g, glass, M.glassBlue, true, true);
+  addMerged(g, glow, M.neon(0x00f5ff, 4.2), false, false);
 
-  return { group: g, orb, beacon };
+  return { group: g, orb, beacon, pos: new THREE.Vector3(P.x, 92, P.z) };
 }
 
-// ---------- 2. ХАН ШАТЫР (150 м, наклонный шатёр на кольце B) ----------
+// ---------- 2. ХАН ШАТЫР (150 м, Норман Фостер) ----------
 function buildKhanShatyr(parent, M) {
-  const z = zoneById("khanShatyr");
+  const P = L.khanShatyr;
   const g = new THREE.Group();
-  g.position.set(z.x, PLATFORM_Y[z.plat] || 0, z.z);
+  g.position.set(P.x, 0, P.z);
+  g.name = "landmark-khanshatyr";
   parent.add(g);
 
-  const stone = [], steel = [], brass = [], glass = [];
-  const Rx = 92, Rz = 78, baseH = 15, apexH = 148, tiltX = -18;
+  const stone = [], glass = [], steel = [], brass = [];
+  const Rx = 94, Rz = 80, baseH = 16, apexH = 150, tiltX = -18;
 
-  // массивный эллиптический стилобат-основание
+  // Эллиптический стилобат + внутренняя палуба (чтобы сквозь шатёр не просвечивала пустая трава!)
   {
     const segs = 56;
     const pts = [];
@@ -145,34 +142,42 @@ function buildKhanShatyr(parent, M) {
       pts.push([Math.cos(a) * Rx, Math.sin(a) * Rz]);
     }
     const B = new GB();
-    polyPrism(B, pts, 0, baseH);
+    for (let j = 0; j < segs; j++) {
+      const [x0, z0] = pts[j], [x1, z1] = pts[(j + 1) % segs];
+      const dx = x1 - x0, dz = z1 - z0, L2 = Math.hypot(dx, dz) || 1;
+      const nx = dz / L2, nz = -dx / L2;
+      B.quad([x1, 0, z1], [x0, 0, z0], [x0, baseH, z0], [x1, baseH, z1], [nx, 0, nz], [0, 0], [L2, 0], [L2, baseH], [0, baseH]);
+    }
     stone.push(B.build());
 
-    // панорамный остеклённый фасад нижнего пояса
-    const ptsG = [];
-    for (let i = 0; i < segs; i++) {
-      const a = (i / segs) * TAU;
-      ptsG.push([Math.cos(a) * (Rx + 0.6), Math.sin(a) * (Rz + 0.6)]);
-    }
-    const BG = new GB();
-    polyPrism(BG, ptsG, 2.5, baseH - 2.2, { cap: false });
-    glass.push(BG.build());
+    // Верхняя крышка-атриум стилобата
+    const deck = new THREE.CylinderGeometry(1, 1, 1.2, 48).scale(Rx * 0.96, 1, Rz * 0.96).translate(0, baseH - 0.6, 0);
+    stone.push(deck);
 
-    // парадный входной портал со стороны моста (-X)
-    const B2 = new GB();
-    B2.box(-Rx - 4, baseH * 0.45, 0, 14, baseH * 0.9, 34);
-    brass.push(B2.build());
+    // Остеклённый пояс в основании стилобата
+    const belt = new THREE.CylinderGeometry(1, 1, 7.5, 48, 1, true).scale(Rx * 1.005, 1, Rz * 1.005).translate(0, 6.2, 0);
+    glass.push(belt);
+
+    // Главный восточный входной портал (обращён на +X к бульвару Нуржол!)
+    const BP = new GB();
+    BP.box(Rx + 3, baseH * 0.48, 0, 14, baseH * 0.92, 38, 0);
+    stone.push(BP.build());
+    const BG = new GB();
+    BG.box(Rx + 10.2, baseH * 0.45, 0, 0.8, baseH * 0.72, 30, 0);
+    glass.push(BG.build());
   }
 
-  // наклонный полупрозрачный шатёр (ETFE-мембрана с плавным вогнутым профилем)
-  const tentMat = M.std({
-    color: 0xdce6ee,
-    roughness: 0.24,
-    metalness: 0.15,
+  // Наклонный полупрозрачный ETFE-шатёр (MeshPhysicalMaterial)
+  const tentMat = M.phys({
+    color: 0xe6edf4,
+    roughness: 0.22,
+    metalness: 0.08,
+    clearcoat: 0.85,
+    clearcoatRoughness: 0.16,
     transparent: true,
-    opacity: 0.82,
-    envMapIntensity: 1.25,
-    emissive: new THREE.Color(0x55a8ff),
+    opacity: 0.80,
+    envMapIntensity: 1.45,
+    emissive: new THREE.Color(0x66b8ff),
     emissiveIntensity: 0,
     side: THREE.DoubleSide,
   });
@@ -182,11 +187,10 @@ function buildKhanShatyr(parent, M) {
     const rings = 24, segs = 56;
     const rows = [];
     const ringPt = (t, a) => {
-      // вогнутый шатровый профиль
       const radScale = Math.pow(1 - t, 1.38) * 0.96 + (1 - t) * 0.04;
       const y = baseH + t * (apexH - baseH);
       const cx = tiltX * Math.pow(t, 1.25);
-      return [cx + Math.cos(a) * Rx * 0.92 * radScale, y, Math.sin(a) * Rz * 0.92 * radScale];
+      return [cx + Math.cos(a) * Rx * 0.93 * radScale, y, Math.sin(a) * Rz * 0.93 * radScale];
     };
     for (let j = 0; j <= rings; j++) {
       const t = j / rings;
@@ -210,160 +214,172 @@ function buildKhanShatyr(parent, M) {
     tentMesh.receiveShadow = true;
     g.add(tentMesh);
 
-    // 28 стальных вантовых меридианов + 8 горизонтальных натяжных колец
+    // Тросовая сетка (меридианы + кольца + внутренний трипод-мачта)
     for (let i = 0; i < 28; i++) {
       const a = (i / 28) * TAU;
       const pts = [];
       for (let j = 0; j <= 14; j++) pts.push(new THREE.Vector3(...ringPt(j / 14, a)));
-      steel.push(tube(pts, 0.36, 5));
+      steel.push(tube(pts, 0.34, 5));
     }
     for (const t of [0.12, 0.25, 0.40, 0.55, 0.70, 0.85, 0.96]) {
       const pts = [];
-      for (let i = 0; i <= 40; i++) pts.push(new THREE.Vector3(...ringPt(t, (i / 40) * TAU)));
-      steel.push(tube(pts, 0.32, 5));
+      for (let i = 0; i <= 44; i++) pts.push(new THREE.Vector3(...ringPt(t, (i / 44) * TAU)));
+      steel.push(tube(pts, 0.30, 5));
     }
-    // внутренний треножник-мачта и верхний шпиль
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * TAU + 0.4;
       steel.push(tube([
         new THREE.Vector3(Math.cos(a) * 26, baseH, Math.sin(a) * 22),
         new THREE.Vector3(tiltX, apexH - 4, 0),
-      ], 1.1, 6));
+      ], 1.15, 6));
     }
-    brass.push(new THREE.CylinderGeometry(0.18, 0.7, 16, 10).translate(tiltX, apexH + 6, 0));
+    brass.push(new THREE.CylinderGeometry(0.18, 0.68, 16, 10).translate(tiltX, apexH + 6, 0));
   }
 
   const beacon = new THREE.Mesh(new THREE.SphereGeometry(1.0, 8, 6), M.glow(0xff2a1a, 6));
   beacon.position.set(tiltX, apexH + 14.5, 0);
   g.add(beacon);
 
-  addMerged(g, stone, M.concrete, true, true);
+  addMerged(g, stone, M.travertine, true, true);
+  addMerged(g, glass, M.glassBlue, false, true);
   addMerged(g, steel, M.steel, true, true);
   addMerged(g, brass, M.brass, false, true);
-  addMerged(g, glass, M.glassDark, false, true);
 
   return { group: g, tentMat };
 }
 
-// ---------- 3. ДВОРЕЦ МИРА И СОГЛАСИЯ (ПИРАМИДА, 76 м) ----------
+// ---------- 3. ДВОРЕЦ МИРА И СОГЛАСИЯ (ПИРАМИДА, 77 м) ----------
 function buildPyramid(parent, M) {
-  const z = zoneById("pyramid");
+  const P = L.pyramid;
   const g = new THREE.Group();
-  g.position.set(z.x, PLATFORM_Y[z.plat] || 0, z.z);
+  g.position.set(P.x, 0, P.z);
+  g.name = "landmark-pyramid";
   parent.add(g);
 
-  const stone = [], glass = [], brass = [];
-  const plinthH = 10, half = 31, pyrH = 62, split = 0.66; // нижние 66% — камень, верхние 34% — светящийся витраж
+  const stone = [], glass = [], steel = [], brass = [];
+  const plinthH = 12, half = 31, pyrH = 62, split = 0.64;
 
-  // ступенчатый стилобат
+  // Ступенчатый гранитный подиум-холм (как в Президентском парке)
   {
     const B = new GB();
-    polyPrism(B, rect(76, 76), 0, 4);
-    polyPrism(B, rect(68, 68), 4, plinthH);
+    B.box(0, 2.5, 0, 96, 5, 96, 0);
+    B.box(0, 8.5, 0, 74, 7, 74, 0);
     stone.push(B.build());
   }
 
-  // нижняя усечённая пирамида (каменные панели)
   const y0 = plinthH, yMid = plinthH + pyrH * split, yTop = plinthH + pyrH;
   const hMid = half * (1 - split);
   const corners = (hs) => [[-hs, -hs], [hs, -hs], [hs, hs], [-hs, hs]];
   const c0 = corners(half), cM = corners(hMid);
 
-  const addSideQuad = (B, a0, a1, b1, b0) => {
-    const ux = a1[0] - a0[0], uy = a1[1] - a0[1], uz = a1[2] - a0[2];
-    const vx = b0[0] - a0[0], vy = b0[1] - a0[1], vz = b0[2] - a0[2];
-    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-    const L = Math.hypot(nx, ny, nz) || 1;
-    nx /= L; ny /= L; nz /= L;
-    if (ny < 0) { nx = -nx; ny = -ny; nz = -nz; }
-    const w0 = Math.hypot(ux, uz), w1 = Math.hypot(b1[0] - b0[0], b1[2] - b0[2]), sh = Math.hypot(vx, vy, vz);
-    B.quad(a1, a0, b0, b1, [nx, ny, nz], [w0, 0], [0, 0], [(w0 - w1) / 2, sh], [(w0 + w1) / 2, sh]);
-  };
-
   {
     const BS = new GB();
     const BG = new GB();
     const apex = [0, yTop, 0];
+    const baseEdgeLen = half * 2;
+    const midEdgeLen = hMid * 2;
+    const lowerSlope = Math.hypot(half - hMid, yMid - y0);
+    const upperSlope = Math.hypot(hMid, yTop - yMid);
+
     for (let i = 0; i < 4; i++) {
       const j = (i + 1) % 4;
       const A0 = [c0[i][0], y0, c0[i][1]], A1 = [c0[j][0], y0, c0[j][1]];
       const M0 = [cM[i][0], yMid, cM[i][1]], M1 = [cM[j][0], yMid, cM[j][1]];
-      addSideQuad(BS, A0, A1, M1, M0);
 
-      // стеклянная вершина
-      const ux = M1[0] - M0[0], uy = M1[1] - M0[1], uz = M1[2] - M0[2];
-      const vx = apex[0] - M0[0], vy = apex[1] - M0[1], vz = apex[2] - M0[2];
-      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-      const L = Math.hypot(nx, ny, nz) || 1;
-      nx /= L; ny /= L; nz /= L;
-      if (ny < 0) { nx = -nx; ny = -ny; nz = -nz; }
-      const wm = Math.hypot(ux, uz), sh = Math.hypot(vx, vy, vz);
-      BG.tri(M1, M0, apex, [nx, ny, nz], [wm, 0], [0, 0], [wm / 2, sh]);
+      // Наружная нормаль грани через (A0 - A1) × (M1 - A1) (CCW снаружи!)
+      const ex = A0[0] - A1[0], ey = 0, ez = A0[2] - A1[2];
+      const fx = M1[0] - A1[0], fy = M1[1] - A1[1], fz = M1[2] - A1[2];
+      let nx = ey * fz - ez * fy;
+      let ny = ez * fx - ex * fz;
+      let nz = ex * fy - ey * fx;
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      nx /= nl; ny /= nl; nz /= nl;
 
-      // рёбра пирамиды из латуни
-      brass.push(tube([new THREE.Vector3(...A0), new THREE.Vector3(...apex)], 0.45, 6));
+      // Нижняя каменная грань (CCW: A1 → A0 → M0 → M1, UV в метрах!)
+      BS.quad(
+        A1, A0, M0, M1,
+        [nx, ny, nz],
+        [baseEdgeLen, 0], [0, 0],
+        [(baseEdgeLen - midEdgeLen) / 2, lowerSlope],
+        [(baseEdgeLen + midEdgeLen) / 2, lowerSlope]
+      );
+
+      // Верхняя стеклянная витражная вершина (CCW: M1 → M0 → apex, UV в метрах для M.lattice!)
+      BG.tri(
+        M1, M0, apex,
+        [nx, ny, nz],
+        [midEdgeLen, 0], [0, 0], [midEdgeLen / 2, upperSlope]
+      );
+
+      // 4 угловых ребра пирамиды + тонкие треугольные рёбра-диагонали
+      steel.push(tube([new THREE.Vector3(...A0), new THREE.Vector3(...apex)], 0.50, 6));
+      for (const frac of [0.22, 0.44, 0.64]) {
+        const lx0 = A0[0] * (1 - frac), lz0 = A0[2] * (1 - frac);
+        const lx1 = A1[0] * (1 - frac), lz1 = A1[2] * (1 - frac);
+        const ly = y0 + pyrH * frac;
+        steel.push(tube([new THREE.Vector3(lx0, ly, lz0), new THREE.Vector3(lx1, ly, lz1)], 0.30, 5));
+      }
     }
     stone.push(BS.build());
     glass.push(BG.build());
-    // пояс-карниз между каменной и стеклянной частью
+
     const pts = cM.map(([x, z2]) => new THREE.Vector3(x, yMid, z2));
     pts.push(pts[0].clone());
-    brass.push(tube(pts, 0.42, 6));
+    brass.push(tube(pts, 0.46, 6));
   }
 
-  addMerged(g, stone, M.whitePlate, true, true);
+  addMerged(g, stone, M.graniteLight, true, true);
   addMerged(g, glass, M.lattice, true, true);
+  addMerged(g, steel, M.steel, true, true);
   addMerged(g, brass, M.brass, false, true);
 
   return { group: g };
 }
 
-// ---------- 4. СФЕРА «НУР АЛЕМ» (D = 80 м, кольцо C) ----------
+// ---------- 4. СФЕРА «НУР АЛЕМ» EXPO (D=80 м) ----------
 function buildNurAlem(parent, M) {
-  const z = zoneById("nurAlem");
+  const P = L.nurAlem;
   const g = new THREE.Group();
-  g.position.set(z.x, PLATFORM_Y[z.plat] || 0, z.z);
+  g.position.set(P.x, 0, P.z);
+  g.name = "landmark-nuralem";
   parent.add(g);
 
-  const white = [], steel = [], brass = [];
+  const white = [], steel = [], brass = [], glass = [];
   const R = 40, cy = 48;
 
-  // стилобат и два изогнутых павильона-крыла у основания
+  // Круговой подиум + парные белые EXPO-павильоны
   {
     const B = new GB();
-    revolve(B, [[0, 0], [50, 0], [50, 4], [46, 8], [32, 10], [0, 10]], 48, { smooth: false });
+    revolve(B, [[0, 0], [52, 0], [52, 4], [47, 8], [32, 10], [0, 10]], 48, { smooth: false });
     white.push(B.build());
-    // два симметричных «объятия» вокруг нижней полусферы
     for (const s of [-1, 1]) {
-      const wing = new THREE.BoxGeometry(24, 14, 52).translate(s * 34, 11, 0);
-      white.push(wing);
+      white.push(new THREE.BoxGeometry(26, 15, 56).translate(s * 36, 11.5, 0));
+      glass.push(new THREE.BoxGeometry(22, 11, 56.6).translate(s * 36, 11.5, 0));
     }
   }
 
-  // главная 80-метровая сфера с медиафасадом diagrid (анимируется в materials.js по uTime/uNight)
+  // Идеальная стеклянная сфера D=80 м (diagrid с LED-волной ночью)
   const sphere = new THREE.Mesh(new THREE.SphereGeometry(R, 48, 32), M.diagrid);
   sphere.position.set(0, cy, 0);
   sphere.castShadow = true;
   sphere.receiveShadow = true;
   g.add(sphere);
 
-  // конструктивные стальные меридианы, экваториальный пояс и верхняя ветротурбинная выемка
-  brass.push(new THREE.TorusGeometry(R + 0.35, 0.45, 8, 64).rotateX(Math.PI / 2).translate(0, cy, 0));
-  steel.push(new THREE.TorusGeometry(R * 0.72, 0.55, 8, 48).rotateX(Math.PI / 2).translate(0, cy + R * 0.70, 0));
-  steel.push(new THREE.TorusGeometry(R * 0.72, 0.55, 8, 48).rotateX(Math.PI / 2).translate(0, cy - R * 0.70, 0));
-  // корона-мост над верхней чашей
+  brass.push(new THREE.TorusGeometry(R + 0.35, 0.42, 8, 64).rotateX(Math.PI / 2).translate(0, cy, 0));
+  steel.push(new THREE.TorusGeometry(R * 0.72, 0.52, 8, 48).rotateX(Math.PI / 2).translate(0, cy + R * 0.70, 0));
+  steel.push(new THREE.TorusGeometry(R * 0.72, 0.52, 8, 48).rotateX(Math.PI / 2).translate(0, cy - R * 0.70, 0));
   {
     const B = new GB();
-    B.box(0, cy + R + 1.2, 0, 26, 2.4, 6);
+    B.box(0, cy + R + 1.2, 0, 26, 2.4, 6, 0);
     steel.push(B.build());
   }
 
-  // неоновое кольцо у основания
-  const ringNeon = new THREE.Mesh(new THREE.TorusGeometry(47.2, 0.3, 6, 64).rotateX(Math.PI / 2), M.neon(0x46f2ff, 4.5));
-  ringNeon.position.y = 7.6;
+  const ringNeon = new THREE.Mesh(new THREE.TorusGeometry(48.0, 0.32, 6, 64).rotateX(Math.PI / 2), M.neon(0x00f5ff, 4.5));
+  ringNeon.position.y = 7.8;
   g.add(ringNeon);
 
-  addMerged(g, white, M.whitePlate, true, true);
+  addMerged(g, white, M.whitePaint, true, true);
+  addMerged(g, glass, M.glassBlue, false, true);
   addMerged(g, steel, M.steel, true, true);
   addMerged(g, brass, M.brass, false, true);
 
@@ -380,15 +396,20 @@ export function buildLandmarks(scene, M, ctx) {
   const pyramid = buildPyramid(group, M);
   const nurAlem = buildNurAlem(group, M);
 
-  void bayterek; void pyramid; void nurAlem;
+  void pyramid; void nurAlem;
+
+  const anchors = {
+    bayterek: bayterek.pos,
+  };
 
   return {
     group,
-    update(_dt, time) {
+    anchors,
+    update(dt, time, _cam, cyberMix) {
+      void dt; void cyberMix;
       const night = ctx.U.uNight.value;
-      // Хан Шатыр ночью мягко светится тёпло-голубым внутренним светом
       if (khan.tentMat) {
-        khan.tentMat.emissiveIntensity = night * (0.55 + 0.12 * Math.sin(time * 0.8));
+        khan.tentMat.emissiveIntensity = night * (0.55 + 0.14 * Math.sin(time * 0.8));
       }
     },
   };

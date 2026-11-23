@@ -1,6 +1,7 @@
 // ============================================================
-// CLAY CITY v3 — управление: свободный полёт (WASD/QE/Shift, мышь),
-// столкновения с зданиями, кино-режим по сплайну с мягкой камерой.
+// ASTANA 2077 — управление: свободный полёт (WASD/QE/Shift, мышь),
+// столкновения с зданиями, кино-режим по сплайну с мягкой камерой,
+// пресеты камеры (ракурсы), плавный перелёт к ракурсу.
 // ============================================================
 import * as THREE from "three";
 
@@ -10,6 +11,20 @@ const UP = new THREE.Vector3(0, 1, 0);
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion();
 const _pos = new THREE.Vector3(), _tgt = new THREE.Vector3(), _dir = new THREE.Vector3();
 const _smooth = new THREE.Vector3(0, 0, -1), ZERO = new THREE.Vector3();
+
+// ============================================================
+// CAMERA VIEWS — ракурсы Астаны
+// ============================================================
+export const CAM_VIEWS = {
+  nurzhol:    { pos: [760, 260, 580],    tgt: [0, 85, 0],       label: "Ось Нуржол" },
+  bayterek:   { pos: [145, 138, 225],    tgt: [-35, 78, 25],    label: "Байтерек" },
+  akorda:     { pos: [455, 108, 72],     tgt: [795, 32, -15],   label: "Акорда и Есиль" },
+  khanShatyr: { pos: [-1100, 210, 340],  tgt: [-940, 75, 0],    label: "Хан Шатыр" },
+  abuDhabi:   { pos: [-340, 360, 460],   tgt: [-160, 165, 250], label: "Abu Dhabi Plaza" },
+  pyramid:    { pos: [1220, 145, -190],  tgt: [1080, 38, 0],    label: "Пирамида и Мечеть" },
+  qazaqgaz:   { pos: [122, 88, 315],     tgt: [235, 68, 155],   label: "QazaqGaz" },
+  street:     { pos: [-180, 12, 18],     tgt: [120, 14, 0],     label: "Улица" },
+};
 
 export function createControls(camera, dom, { collide = null } = {}) {
   const keys = Object.create(null);
@@ -22,10 +37,14 @@ export function createControls(camera, dom, { collide = null } = {}) {
     blend: 1, fromPos: new THREE.Vector3(), fromQuat: new THREE.Quaternion(), lastYaw: 0, bank: 0,
   };
 
+  // --- плавный перелёт к ракурсу ---
+  let flyTo = null; // { from, to, tgtFrom, tgtTo, t, dur }
+
   addEventListener("keydown", (e) => {
     if (e.repeat) return;
     keys[e.code] = true;
     if (cine.on && ["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE", "Space", "ShiftLeft", "ShiftRight"].includes(e.code)) exitCinematic();
+    if (flyTo && ["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE"].includes(e.code)) flyTo = null; // прерывать перелёт
   });
   addEventListener("keyup", (e) => { keys[e.code] = false; });
   addEventListener("blur", () => { for (const k in keys) keys[k] = false; });
@@ -59,22 +78,68 @@ export function createControls(camera, dom, { collide = null } = {}) {
     vel.set(0, 0, 0);
   }
 
+  function goToView(viewName, instant = false) {
+    const view = CAM_VIEWS[viewName];
+    if (!view) return;
+    exitCinematic();
+    vel.set(0, 0, 0);
+    if (instant) {
+      flyTo = null;
+      camera.position.set(...view.pos);
+      camera.lookAt(...view.tgt);
+      if (camera.fov !== fovBase) { camera.fov = fovBase; camera.updateProjectionMatrix(); }
+      syncFromCamera();
+      return;
+    }
+    flyTo = {
+      fromPos: camera.position.clone(),
+      fromQuat: camera.quaternion.clone(),
+      toPos: new THREE.Vector3(...view.pos),
+      toTgt: new THREE.Vector3(...view.tgt),
+      t: 0, dur: 1.5,
+    };
+  }
+
+  function updateFlyTo(dt) {
+    if (!flyTo) return false;
+    flyTo.t += dt / flyTo.dur;
+    if (flyTo.t >= 1) {
+      camera.position.copy(flyTo.toPos);
+      camera.lookAt(flyTo.toTgt);
+      syncFromCamera();
+      flyTo = null;
+      return true;
+    }
+    const e = flyTo.t * flyTo.t * (3 - 2 * flyTo.t); // smoothstep
+    camera.position.lerpVectors(flyTo.fromPos, flyTo.toPos, e);
+    // interpolate look target
+    _tgt.lerpVectors(flyTo.fromPos, flyTo.toTgt, e);
+    _m.lookAt(camera.position, _tgt.lerpVectors(
+      flyTo.fromPos.clone().add(new THREE.Vector3(0, 0, -1).applyQuaternion(flyTo.fromQuat)),
+      flyTo.toTgt, e
+    ), UP);
+    // simpler: just lookAt lerped target
+    const lerpedTgt = new THREE.Vector3().lerpVectors(
+      flyTo.fromPos.clone().add(new THREE.Vector3(0, 0, -100).applyQuaternion(flyTo.fromQuat)),
+      flyTo.toTgt, e
+    );
+    camera.lookAt(lerpedTgt);
+    return true;
+  }
+
   function updateCinematic(dt, time) {
     cine.blend = Math.min(1, cine.blend + dt / 2.6);
     cine.t = (cine.t + dt / cine.duration) % 1;
     cine.pos.getPointAt(cine.t, _pos);
     cine.look.getPointAt(cine.t, _tgt);
-    // мягкое «слежение» за целью + лёгкое дыхание камеры
     _dir.subVectors(_tgt, _pos).normalize();
     _smooth.lerp(_dir, 1 - Math.exp(-dt * 2.2)).normalize();
-  const breathe = Math.sin(time * 0.7) * 0.0022 + Math.sin(time * 1.9 + 1.3) * 0.0011;
-  _m.lookAt(ZERO, _dir.copy(_smooth).applyAxisAngle(UP, breathe), UP);
-  _q.setFromRotationMatrix(_m);
-    // вход из текущего положения камеры
+    const breathe = Math.sin(time * 0.7) * 0.0022 + Math.sin(time * 1.9 + 1.3) * 0.0011;
+    _m.lookAt(ZERO, _dir.copy(_smooth).applyAxisAngle(UP, breathe), UP);
+    _q.setFromRotationMatrix(_m);
     const k = cine.blend * cine.blend * (3 - 2 * cine.blend);
     camera.position.lerpVectors(cine.fromPos, _pos, k);
     camera.quaternion.slerpQuaternions(cine.fromQuat, _q, k);
-    // крен от поворота
     _eul.setFromQuaternion(camera.quaternion, "YXZ");
     let dy = _eul.y - cine.lastYaw;
     if (dy > Math.PI) dy -= Math.PI * 2; else if (dy < -Math.PI) dy += Math.PI * 2;
@@ -87,8 +152,13 @@ export function createControls(camera, dom, { collide = null } = {}) {
     speedUI = cine.pos.getLength() / cine.duration;
   }
 
+  function syncFromCamera() {
+    _eul.setFromQuaternion(camera.quaternion, "YXZ"); yaw = _eul.y; pitch = _eul.x; roll = 0;
+  }
+
   function update(dt, time = 0) {
     if (cine.on) { updateCinematic(dt, time); return; }
+    if (updateFlyTo(dt)) return;
     if (!enabled) return;
     _eul.set(pitch, yaw, roll, "YXZ");
     camera.quaternion.setFromEuler(_eul);
@@ -109,7 +179,7 @@ export function createControls(camera, dom, { collide = null } = {}) {
     camera.quaternion.setFromEuler(_eul);
     if (_acc.lengthSq() > 0) _acc.normalize().multiplyScalar(base);
     vel.addScaledVector(_acc, dt);
-    vel.multiplyScalar(Math.pow(0.1, dt));           // экспоненциальное затухание, не зависит от fps
+    vel.multiplyScalar(Math.pow(0.1, dt));
     camera.position.addScaledVector(vel, dt);
     const r = Math.hypot(camera.position.x, camera.position.z);
     if (r > 12000) camera.position.multiplyScalar(12000 / r);
@@ -123,18 +193,19 @@ export function createControls(camera, dom, { collide = null } = {}) {
     update,
     enterCinematic,
     exitCinematic,
+    goToView,
     get cinematic() { return cine.on; },
     get enabled() { return enabled; },
     set enabled(v) { enabled = v; },
     get speed() { return Math.round(speedUI); },
-    syncFromCamera() { _eul.setFromQuaternion(camera.quaternion, "YXZ"); yaw = _eul.y; pitch = _eul.x; roll = 0; },
+    syncFromCamera,
     setRoute(posCurve, lookCurve, duration = 110) { cine.pos = posCurve; cine.look = lookCurve; cine.duration = duration; },
     get cineT() { return cine.t; },
     set cineT(v) { cine.t = v; },
   };
 }
 
-// Коллайдер: ориентированные боксы зданий в хеш-сетке. Выталкивает камеру (радиус 1.7 м).
+// Коллайдер: ориентированные боксы зданий в хеш-сетке
 export function makeCollider(list, extra = []) {
   const CELL = 64, grid = new Map();
   const items = [];

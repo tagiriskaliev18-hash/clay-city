@@ -99,10 +99,10 @@ function buildMegaTowerParts(r, w, d, h, sections, ribCount) {
 
 // ---------- NEON SIGN CANVAS ----------
 const CYBER_BRANDS = [
-  "АСТАНА 2077", "QAZAQ·CORP", "НУРЖОЛ", "БАЙТЕРЕК·НЕТ",
-  "НЕОН·БАЗАР", "КИБЕР·ГАЗ", "STEPPE·TECH", "МЕГА·СЕКТОР 01",
-  "СТЕПЬ·БАНК", "КИБЕР·БАЗАР", "НУРЖОЛ·SYS", "QAZAQ·NET",
-  "БАЙТ·КОРП", "АСТАНА·LINK", "СТЕПЬ·CORP", "НЕЙРО·СИТИ",
+  "ASTANA 2077", "QAZAQGAZ", "CYBER NOMAD", "SYNTH COFFEE",
+  "NOODLE 24/7", "КИБЕР-АПТЕКА", "NEURAL CLINIC", "MEGA HYPER-MALL",
+  "TECHNO-BAZAR", "STEPPE CORP", "BAITEREK NET", "SOLUXE 2077",
+  "НҰРЖОЛ·SYS", "АСТАНА·LINK", "QAZAQ·CORP", "НЕЙРО·СИТИ",
 ];
 
 function neonSignTexture(text, { w = 512, h = 160, color = "#00F5FF", vertical = false, bg = "rgba(6,8,14,0.92)", emblem = false } = {}) {
@@ -350,49 +350,75 @@ export function buildCyberpunk(scene, M, _ctx, buildings = []) {
     }
   }
 
-  // Неоновые контуры и вывески на зданиях кварталов Астаны
+  // Неоновые контуры, 100+ вертикальных блейд-вывесок с кронштейнами и 60+ фасадных билбордов
   if (buildings && buildings.length) {
     const neonMats = [0x00f5ff, 0xff2a85, 0xffb347].map((c) => M.neon(c, 4.6, 0.0));
     const neonBuckets = [[], [], []];
     const hSignMats = Array.from({ length: hSignPool.length }, () => []);
     const vSignMats = Array.from({ length: vSignPool.length }, () => []);
+    const bracketMats = [];
 
     for (let i = 0; i < buildings.length; i++) {
       const b = buildings[i];
-      if (b.h < 22 || b.kind === "suburbVilla") continue;
+      if (b.h < 14 || b.kind === "suburbVilla") continue;
       const c = Math.cos(b.yaw), s = Math.sin(b.yaw);
       const localToWorld = (lx, ly, lz) => [b.x + lx * c + lz * s, b.y + ly, b.z - lx * s + lz * c];
 
       // Неоновые контуры на крышах высоток
-      if (b.h > 36 && r() < 0.72) {
+      if (b.h > 30 && r() < 0.72) {
         const ci = Math.floor(r() * 3);
         const topY = b.h * 0.96;
-        const pF = localToWorld(0, topY, b.d * 0.52);
-        const pB = localToWorld(0, topY, -b.d * 0.52);
-        neonBuckets[ci].push(place(pF[0], pF[1], pF[2], b.yaw, b.w * 0.78, 0.55, 0.45));
-        neonBuckets[ci].push(place(pB[0], pB[1], pB[2], b.yaw, b.w * 0.78, 0.55, 0.45));
+        const pF = localToWorld(0, topY, b.d * 0.51);
+        const pB = localToWorld(0, topY, -b.d * 0.51);
+        neonBuckets[ci].push(place(pF[0], pF[1], pF[2], b.yaw, b.w * 0.80, 0.55, 0.45));
+        neonBuckets[ci].push(place(pB[0], pB[1], pB[2], b.yaw, b.w * 0.80, 0.55, 0.45));
       }
 
-      // Горизонтальные вывески на крышах и фасадах
-      if (b.h > 24 && r() < 0.36) {
+      // 60+ широких горизонтальных неоновых вывесок на фасадах и крышах
+      if (b.h > 20 && r() < 0.45) {
         const pi = Math.floor(r() * hSignPool.length);
-        const sw = Math.min(b.w * 0.78, 18), sh = sw * 0.31;
-        const p = localToWorld(0, b.h * 0.98 + sh * 0.55, b.d * 0.42);
+        const sw = Math.min(b.w * 0.82, 22), sh = sw * 0.31;
+        const onRoof = b.h < 68 && r() < 0.5;
+        const p = localToWorld(0, onRoof ? (b.h + sh * 0.52) : (b.h * 0.76), b.d * 0.52);
         hSignMats[pi].push(place(p[0], p[1], p[2], b.yaw, sw, sh, 1));
       }
 
-      // Вертикальные вывески на башнях
-      if (b.h > 48 && r() < 0.30) {
+      // 100+ вертикальных неоновых блейд-вывесок с выносными стальными кронштейнами!
+      if (b.h > 22 && r() < 0.58) {
         const pi = Math.floor(r() * vSignPool.length);
-        const sh = Math.min(b.h * 0.46, 26), sw = sh * 0.28;
+        const sh = Math.min(b.h * 0.48, 28), sw = sh * 0.27;
         const side = r() < 0.5 ? 1 : -1;
-        const p = localToWorld(side * (b.w * 0.53 + 0.5), b.h * 0.62, 0);
-        vSignMats[pi].push(place(p[0], p[1], p[2], b.yaw + side * Math.PI / 2, sw, sh, 1));
+        const offOut = b.w * 0.52 + sw * 0.75;
+        const sy = Math.max(12, b.h * 0.48);
+        const p = localToWorld(side * offOut, sy, b.d * 0.32 * (r() < 0.5 ? 1 : -1));
+        vSignMats[pi].push(place(p[0], p[1], p[2], b.yaw + (r() < 0.5 ? 0 : Math.PI / 2), sw, sh, 1));
+        // Два металлических кронштейна, крепящих вывеску к фасаду
+        const bp = localToWorld(side * (b.w * 0.50 + sw * 0.38), sy + sh * 0.32, b.d * 0.32 * (r() < 0.5 ? 1 : -1));
+        bracketMats.push(place(bp[0], bp[1], bp[2], b.yaw, sw * 0.78, 0.32, 0.32));
+        bracketMats.push(place(bp[0], bp[1] - sh * 0.64, bp[2], b.yaw, sw * 0.78, 0.32, 0.32));
+      }
+
+      // Неоновые кибер-витрины уличного уровня (y = 4.6 м) вдоль главных улиц
+      if (Math.abs(b.z) < 520 && r() < 0.42) {
+        const pi = Math.floor(r() * hSignPool.length);
+        const sw = Math.min(b.w * 0.62, 12), sh = sw * 0.28;
+        const side = b.z >= 0 ? -1 : 1;
+        const p = localToWorld(0, 4.9, side * (b.d * 0.53));
+        hSignMats[pi].push(place(p[0], p[1], p[2], b.yaw + (side < 0 ? Math.PI : 0), sw, sh, 1));
+      }
+    }
+
+    // Дополнительные светящиеся уличные кибер-вывески вдоль Достык/Кунаева/Сыганак
+    for (let sx = -700; sx <= 500; sx += 48) {
+      for (const sz of [-66, +66, +264, +444]) {
+        const pi = Math.abs(Math.round(sx + sz)) % hSignPool.length;
+        hSignMats[pi].push(place(sx, 5.2, sz, sz < 0 ? 0 : Math.PI, 10.5, 3.0, 1));
       }
     }
 
     const unitBox = new THREE.BoxGeometry(1, 1, 1);
     neonBuckets.forEach((arr, i) => { if (arr.length) buildInstanced(group, unitBox, neonMats[i], arr, { name: `neon-${i}` }); });
+    if (bracketMats.length) buildInstanced(group, unitBox, M.darkMetal, bracketMats, { name: "blade-brackets" });
     hSignMats.forEach((arr, i) => { if (arr.length) buildInstanced(group, sharedPlane, hSignPool[i], arr, { name: `hsign-${i}` }); });
     vSignMats.forEach((arr, i) => { if (arr.length) buildInstanced(group, sharedPlane, vSignPool[i], arr, { name: `vsign-${i}` }); });
   }
@@ -456,33 +482,27 @@ export function buildCyberpunk(scene, M, _ctx, buildings = []) {
   // Центр (235, 155), центральный корпус ±15.8 × ±25.4 до y=86, боковые крылья ±26 × ±21.9 до y=72.6
   const QG = LANDMARKS.qazaqGaz || { x: 235, z: 155, h: 86 };
 
-  // 4а. Прецизионная LED-подсветка по рёбрам и уступам здания QazaqGaz (без сплошных плит и перекрытия вывесок!)
+  // 4а. Прецизионная LED-подсветка по контуру реальной трапециевидной башни QazaqGaz (42→36×34→29, карниз y=73.4)
   const qLedCyan = M.neon(0x00F5FF, 7.2, 0.0);
   const qLedBlue = M.neon(0x1E90FF, 6.5, 0.0);
   const qCyanMats = [];
   const qBlueMats = [];
 
-  // 4 вертикальных ребра центральной башни (до y = 86.2)
-  for (const [dx, dz] of [[16.4, 25.6], [-16.4, 25.6], [16.4, -25.6], [-16.4, -25.6]]) {
-    qCyanMats.push(place(QG.x + dx, 50.0, QG.z + dz, 0, 0.48, 72.5, 0.48));
+  // Тонкий световой периметр карниза под пирамидой (y = 73.4)
+  qCyanMats.push(place(QG.x, 73.4, QG.z + 15.2, 0, 36.8, 0.45, 0.45));
+  qCyanMats.push(place(QG.x, 73.4, QG.z - 15.2, 0, 36.8, 0.45, 0.45));
+  qCyanMats.push(place(QG.x + 18.4, 73.4, QG.z, 0, 0.45, 0.45, 30.6));
+  qCyanMats.push(place(QG.x - 18.4, 73.4, QG.z, 0, 0.45, 0.45, 30.6));
+  // Пояс над 2-этажным стилобатом (y = 9.7)
+  qBlueMats.push(place(QG.x, 9.7, QG.z + 17.6, 0, 44.4, 0.36, 0.36));
+  qBlueMats.push(place(QG.x, 9.7, QG.z - 17.6, 0, 44.4, 0.36, 0.36));
+  // 4 вертикально-наклонные стойки по центру шевронов и бокам
+  for (const sx of [-18.2, 18.2]) {
+    qBlueMats.push(place(QG.x + sx, 41.5, QG.z + 15.8, 0, 0.38, 63.0, 0.38));
+    qBlueMats.push(place(QG.x + sx, 41.5, QG.z - 15.8, 0, 0.38, 63.0, 0.38));
   }
-  // 4 вертикальных ребра боковых крыльев (до y = 72.8)
-  for (const [dx, dz] of [[26.3, 22.0], [-26.3, 22.0], [26.3, -22.0], [-26.3, -22.0]]) {
-    qBlueMats.push(place(QG.x + dx, 43.2, QG.z + dz, 0, 0.44, 59.2, 0.44));
-  }
-  // Тонкий световой периметр верхней короны (y = 86.3, НЕ закрывает вывески на y = 83.2!)
-  qCyanMats.push(place(QG.x, 86.3, QG.z + 25.7, 0, 33.4, 0.55, 0.55));
-  qCyanMats.push(place(QG.x, 86.3, QG.z - 25.7, 0, 33.4, 0.55, 0.55));
-  qCyanMats.push(place(QG.x + 16.5, 86.3, QG.z, 0, 0.55, 0.55, 51.8));
-  qCyanMats.push(place(QG.x - 16.5, 86.3, QG.z, 0, 0.55, 0.55, 51.8));
-  // Тонкий периметр крыльев (y = 72.8)
-  qBlueMats.push(place(QG.x, 72.8, QG.z + 22.1, 0, 53.0, 0.46, 0.46));
-  qBlueMats.push(place(QG.x, 72.8, QG.z - 22.1, 0, 53.0, 0.46, 0.46));
-  qBlueMats.push(place(QG.x + 26.3, 72.8, QG.z, 0, 0.46, 0.46, 44.6));
-  qBlueMats.push(place(QG.x - 26.3, 72.8, QG.z, 0, 0.46, 0.46, 44.6));
-  // Световая окантовка козырька стилобата (y = 14.5)
-  qCyanMats.push(place(QG.x, 14.5, QG.z + 32.8, 0, 26.0, 0.35, 0.35));
-  qCyanMats.push(place(QG.x, 14.5, QG.z - 32.8, 0, 26.0, 0.35, 0.35));
+  // Подсветка козырька перголы (+Z)
+  qCyanMats.push(place(QG.x, 10.6, QG.z + 25.0, 0, 22.0, 0.32, 0.32));
 
   const unitBox2 = new THREE.BoxGeometry(1, 1, 1);
   buildInstanced(group, unitBox2, qLedCyan, qCyanMats, { name: "qazaqgaz-led-cyan" });

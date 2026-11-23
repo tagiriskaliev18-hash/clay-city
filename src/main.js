@@ -1,12 +1,12 @@
 // ============================================================
-// ASTANA 2077 — Сборка сцены, загрузка, кибер-переключение,
-// кино-маршрут, адаптивное качество, цикл рендера.
-// БАЗОВЫЙ РЕЖИМ: чистая солнечная реалистичная Астана (cyberMode=false).
-// ПО КЛАВИШЕ F: резкий переход в ASTANA 2077 CYBERPUNK.
+// ASTANA 2077 — main.js
+// Сборка сцены, загрузка модулей (incl. interiors, streetlife,
+// ledscreens), кибер-переключение [F], пешеходный режим [G],
+// вход/выход в интерьеры [V], коллайдеры и цикл рендера.
 // ============================================================
 import * as THREE from "three";
 import { TIERS, detectTier, STATE, ZONES, SIGNATURE, PLATFORMS } from "./config.js";
-import { U, createEnv, PRESET_ORDER } from "./env.js";
+import { U, createEnv } from "./env.js";
 import { setAnisotropy } from "./textures.js";
 import { createMaterials, applyNight } from "./materials.js";
 import { createEffects } from "./effects.js";
@@ -40,7 +40,8 @@ $("app").appendChild(renderer.domElement);
 setAnisotropy(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(52, innerWidth / innerHeight, 2, 90000);
+// near = 0.35 чтобы интерьеры/банкоматы/столы не обрезались вблизи, far = 16000!
+const camera = new THREE.PerspectiveCamera(52, innerWidth / innerHeight, 0.35, 16000);
 camera.rotation.order = "YXZ";
 camera.position.set(...CAM_VIEWS.nurzhol.pos);
 camera.lookAt(...CAM_VIEWS.nurzhol.tgt);
@@ -65,16 +66,19 @@ const load = async (file, fn, ...args) => {
   return r;
 };
 const steps = [
-  ["Платформы и улицы", async () => { mods.city = await load("city", "buildCity"); }],
-  ["Достопримечательности", async () => {
+  ["Платформы, Есиль и улицы", async () => { mods.city = await load("city", "buildCity"); }],
+  ["Достопримечательности и MEGA Silk Way", async () => {
     mods.landmarks = await load("landmarks", "buildLandmarks");
     mods.landmarks2 = await load("landmarks2", "buildLandmarks");
   }],
-  ["Фирменные башни", async () => { mods.signature = await load("signature", "buildSignature"); }],
-  ["Кварталы", async () => { mods.buildings = await load("buildings", "buildBuildings"); }],
-  ["Киберпанк-слой", async () => { mods.cyberpunk = await load("cyberpunk", "buildCyberpunk", mods.buildings ? mods.buildings.list : []); }],
-  ["Фонари, деревья, автомобили", async () => { mods.props = await load("props", "buildProps"); }],
-  ["Флот дирижаблей", async () => { mods.airships = await load("airships", "buildAirships"); }],
+  ["QazaqGaz, Beijing Palace и Highvill", async () => { mods.signature = await load("signature", "buildSignature"); }],
+  ["Проходные 3D-интерьеры", async () => { mods.interiors = await load("interiors", "buildInteriors"); }],
+  ["Плотная городская застройка", async () => { mods.buildings = await load("buildings", "buildBuildings"); }],
+  ["Уличная жизнь и 2400+ деревьев", async () => { mods.streetlife = await load("streetlife", "buildStreetLife", mods.buildings ? mods.buildings.list : []); }],
+  ["Киберпанк-слой и вывески", async () => { mods.cyberpunk = await load("cyberpunk", "buildCyberpunk", mods.buildings ? mods.buildings.list : []); }],
+  ["Гигантские LED-экраны", async () => { mods.ledscreens = await load("ledscreens", "buildLedScreens"); }],
+  ["Транспорт и трафик", async () => { mods.props = await load("props", "buildProps"); }],
+  ["Дирижабли и спинеры", async () => { mods.airships = await load("airships", "buildAirships"); }],
   ["Частицы", async () => {
     const cyberVents = mods.cyberpunk && mods.cyberpunk.ventPositions ? mods.cyberpunk.ventPositions : [];
     const cityVents = mods.city && mods.city.vents ? mods.city.vents : [];
@@ -95,43 +99,60 @@ async function build() {
 }
 
 // ============================================================
-// Кино-маршрут: облёт реальной оси Нуржол, QazaqGaz, Акорды и Есиля
+// Кино-маршрут
 // ============================================================
 function cinematicRoute() {
   const v = (x, y, z) => new THREE.Vector3(x, y, z);
   const pos = new THREE.CatmullRomCurve3([
-    v(780, 270, 590), v(410, 150, 310), v(135, 92, 295), v(155, 138, 220),
+    v(780, 270, 590), v(410, 150, 310), v(155, 76, 265), v(155, 138, 220),
     v(-210, 175, 165), v(-680, 210, 260), v(-1120, 220, 290), v(-960, 240, -280),
     v(-340, 215, -310), v(220, 175, -240), v(640, 150, -210), v(1160, 185, -180),
-    v(1220, 210, 240), v(920, 235, 420),
+    v(1220, 210, 240), v(920, 235, 420), v(-180, 140, 1140), v(-650, 145, 830),
   ], true, "centripetal", 0.5);
   const look = new THREE.CatmullRomCurve3([
-    v(0, 85, 0), v(590, 42, 0), v(235, 58, 155), v(0, 82, 0),
+    v(0, 85, 0), v(590, 42, 0), v(235, 42, 155), v(0, 82, 0),
     v(-160, 160, 250), v(-560, 65, 0), v(-940, 75, 0), v(-560, 75, 0),
-    v(0, 85, 0), v(235, 58, 155), v(590, 45, 0), v(1080, 45, 0),
-    v(780, 35, 0), v(235, 58, 155),
+    v(0, 85, 0), v(235, 42, 155), v(590, 45, 0), v(1080, 45, 0),
+    v(780, 35, 0), v(235, 42, 155), v(-180, 18, 940), v(-630, 35, 660),
   ], true, "centripetal", 0.5);
   return { pos, look };
 }
 
 // ============================================================
-// Управление, HUD, CYBERPUNK TOGGLE
+// Управление, HUD, CYBERPUNK TOGGLE, WALK MODE, [V] PORTAL
 // ============================================================
 const collider = { fn: null };
-const controls = createControls(camera, renderer.domElement, {
-  collide: (p, v) => { if (collider.fn) collider.fn(p, v); },
-});
-const LANDMARK_H = { bayterek: 105, akorda: 80, akOrda: 80, ministries: 75, qazaqGaz: 86, parliament: 85, mosque: 77, museum: 36, pyramid: 77, circus: 32, khanShatyr: 150, abuDhabi: 320, nurAlem: 100, arch: 22 };
-const SIG_H = { emerald1: 210, emerald2: 156, transportTower: 155, northernLights1: 180, northernLights2: 152, northernLights3: 128, kmgGate: 165, beijingPalace: 115, talan1: 145, talan2: 119, triumphAstana: 142 };
-const platformY = Object.fromEntries(PLATFORMS.map((p) => [p.id, p.y]));
-const extraBoxes = [
-  ...ZONES.map((z) => ({ x: z.x, z: z.z, y: platformY[z.plat] || 0, yaw: 0, w: z.hx * 2, d: z.hz * 2, h: LANDMARK_H[z.id] || 40 })),
-  ...SIGNATURE.map((s) => ({ x: s.x, z: s.z, y: platformY[s.plat] || 0, yaw: s.yaw || 0, w: (s.w || s.hx * 2), d: (s.d || s.hz * 2), h: s.h || SIG_H[s.id] || 120 })),
-];
-
+const walkBtn = $("walkBtn");
+const enterPrompt = $("enterPrompt");
 const overlay = $("overlay"), hud = $("hud"), toastEl = $("toast");
 const fpsVal = $("fpsVal"), resVal = $("resVal"), speedVal = $("speedVal");
-const cyberBtn = $("cyberBtn"), cyberLabel = $("cyberLabel");
+const cyberBtn = $("cyberBtn");
+
+function updateWalkBtn(on) {
+  if (!walkBtn) return;
+  walkBtn.classList.toggle("active", !!on);
+  walkBtn.innerHTML = on ? '<kbd>G</kbd> ПОЛЁТ' : '<kbd>G</kbd> ПЕШКОМ';
+}
+
+const controls = createControls(camera, renderer.domElement, {
+  collide: (p, v, r) => { if (collider.fn) collider.fn(p, v, r); },
+  floorHeightAt: (x, z, footY) => (mods.interiors ? mods.interiors.floorHeightAt(x, z, footY) : 0),
+  onWalkChange: updateWalkBtn,
+});
+
+const LANDMARK_H = {
+  bayterek: 105, akorda: 80, akOrda: 80, ministries: 75,
+  parliament: 85, mosque: 77, museum: 36, pyramid: 77,
+  circus: 32, khanShatyr: 150, abuDhabi: 320, nurAlem: 100, arch: 22,
+  highvillPark: 88, highvillAstana: 82,
+};
+const SIG_H = {
+  emerald1: 210, emerald2: 156, transportTower: 155,
+  northernLights1: 180, northernLights2: 152, northernLights3: 128,
+  kmgGate: 165, talan1: 145, talan2: 119, triumphAstana: 142,
+};
+const platformY = Object.fromEntries(PLATFORMS.map((p) => [p.id, p.y]));
+
 let toastTimer = null;
 function toast(msg) {
   if (!toastEl) return;
@@ -145,11 +166,10 @@ const brandSub = document.querySelector("#brand span");
 function setCyber(on, instant = false) {
   cyberMode = !!on;
   env.setCyber(cyberMode, instant ? 0.001 : 0.65);
-  if (!instant) fx.flashGlitch(); // ударная неоновая вспышка при живом нажатии F
-  // Показать/скрыть кибер-слой и дирижабли
+  if (!instant) fx.flashGlitch();
   if (mods.cyberpunk && mods.cyberpunk.setCyber) mods.cyberpunk.setCyber(cyberMode);
   if (mods.airships && mods.airships.setCyber) mods.airships.setCyber(cyberMode);
-  // HUD update
+  if (mods.ledscreens && mods.ledscreens.setCyber) mods.ledscreens.setCyber(cyberMode);
   if (cyberBtn) {
     if (cyberMode) {
       cyberBtn.classList.add("active");
@@ -170,19 +190,38 @@ function setActiveViewBtn(name) {
   });
 }
 
+function enterOrExitNearest() {
+  if (!mods.interiors) return false;
+  const portal = mods.interiors.queryPortal(camera.position);
+  if (!portal) return false;
+  if (portal.inside) {
+    controls.teleport(portal.entrance.outsidePos, portal.entrance.outsideLook, true);
+    toast("Вышли наружу · " + portal.entrance.label);
+  } else {
+    controls.teleport(portal.entrance.insidePos, portal.entrance.insideLook, true);
+    toast("Внутри: " + portal.entrance.label);
+  }
+  return true;
+}
+
 // Глобальные хуки для автотестов
 window.__setCyber = (bool, instant = false) => setCyber(!!bool, instant);
 window.__setCam = (name, instant = false) => {
   controls.goToView(name, instant);
   setActiveViewBtn(name);
 };
+window.__setWalk = (bool) => controls.setWalkMode(!!bool);
+window.__enterExit = () => enterOrExitNearest();
 
 // Keyboard handlers
 addEventListener("keydown", (e) => {
-  if (e.repeat) return;
-  if (e.code === "KeyF" && !e.target.closest("input, textarea")) {
-    setCyber(!cyberMode);
+  if (e.repeat || e.target.closest("input, textarea")) return;
+  if (e.code === "KeyF") setCyber(!cyberMode);
+  if (e.code === "KeyG") {
+    controls.setWalkMode(!controls.walkMode);
+    toast(controls.walkMode ? "Режим: Пешком (WASD + Shift)" : "Режим: Свободный полёт");
   }
+  if (e.code === "KeyV") enterOrExitNearest();
   if (e.code === "KeyC") {
     if (controls.cinematic) { controls.exitCinematic(); toast("Свободный полёт"); }
     else { controls.enterCinematic(); toast("Кино-режим · любая клавиша движения — выход"); }
@@ -190,10 +229,13 @@ addEventListener("keydown", (e) => {
   if (e.code === "KeyH") hud.classList.toggle("off");
 });
 
-// HUD button clicks
 if (cyberBtn) cyberBtn.addEventListener("click", () => setCyber(!cyberMode));
+if (walkBtn) walkBtn.addEventListener("click", () => {
+  controls.setWalkMode(!controls.walkMode);
+  toast(controls.walkMode ? "Режим: Пешком" : "Режим: Свободный полёт");
+});
+if (enterPrompt) enterPrompt.addEventListener("click", () => enterOrExitNearest());
 
-// Camera view buttons
 document.querySelectorAll("[data-cam]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const name = btn.dataset.cam;
@@ -224,7 +266,7 @@ addEventListener("resize", () => {
 let last = performance.now(), elapsed = 0, frames = 0;
 { const m = P.get("t0"); if (m) elapsed = parseFloat(m) || 0; }
 let resScale = resMax, aoOn = !!tier.ao;
-let emaMs = 16, adaptT = 0, hudT = 0;
+let emaMs = 16, adaptT = 0, hudT = 0, lastPromptText = "";
 const ATTRACT_R = 2150;
 
 function applyRes() {
@@ -264,6 +306,18 @@ function frame(now) {
   fx.composer.render();
   frames++;
 
+  if (enterPrompt && mods.interiors && frames % 6 === 0) {
+    const portal = controls.enabled ? mods.interiors.queryPortal(camera.position) : null;
+    if (portal) {
+      const txt = portal.inside ? `[V] Выйти наружу (${portal.entrance.label})` : `[V] Войти внутрь (${portal.entrance.label})`;
+      if (txt !== lastPromptText) { enterPrompt.textContent = txt; lastPromptText = txt; }
+      enterPrompt.classList.add("show");
+    } else if (lastPromptText !== "") {
+      enterPrompt.classList.remove("show");
+      lastPromptText = "";
+    }
+  }
+
   if (speedVal && frames % 6 === 0) speedVal.textContent = controls.speed;
   hudT += raw;
   if (hudT > 0.5) {
@@ -283,8 +337,14 @@ function frame(now) {
 // ---------- API для отладки/скриншотов ----------
 function stats() {
   const i = renderer.info;
-  return { calls: i.render.calls, tris: i.render.triangles, programs: i.programs.length, geometries: i.memory.geometries, textures: i.memory.textures,
-    tier: tierName, res: +resScale.toFixed(2), ms: +emaMs.toFixed(1), buildings: mods.buildings ? mods.buildings.list.length : 0, cyber: cyberMode };
+  return {
+    calls: i.render.calls, tris: i.render.triangles, programs: i.programs.length,
+    geometries: i.memory.geometries, textures: i.memory.textures,
+    tier: tierName, res: +resScale.toFixed(2), ms: +emaMs.toFixed(1),
+    buildings: mods.buildings ? mods.buildings.list.length : 0,
+    cyber: cyberMode, walk: controls.walkMode,
+    streetlife: mods.streetlife ? mods.streetlife.counts : null,
+  };
 }
 window.__app = {
   THREE, scene, camera, renderer, env, M, mods, controls, stats,
@@ -299,8 +359,23 @@ window.__app = {
   $("loadLabel").textContent = "Инициализация";
   await build();
   controls.setRoute(cinematicRoute().pos, cinematicRoute().look, 115);
+
   const list = mods.buildings ? mods.buildings.list : [];
-  collider.fn = makeCollider(list, extraBoxes);
+  // Исключаем walkable-здания и парки из сплошных внешних боксов — их полые стены задаёт interiors.js!
+  const solidZones = ZONES
+    .filter((z) => !z.walkable && !z.isPark)
+    .map((z) => ({ x: z.x, z: z.z, y: platformY[z.plat] || 0, yaw: 0, w: z.hx * 2, d: z.hz * 2, h: LANDMARK_H[z.id] || 40 }));
+  const solidSig = SIGNATURE
+    .filter((s) => !s.walkable)
+    .map((s) => ({ x: s.x, z: s.z, y: platformY[s.plat] || 0, yaw: s.yaw || 0, w: s.w || s.hx * 2, d: s.d || s.hz * 2, h: s.h || SIG_H[s.id] || 120 }));
+  const interiorColliders = mods.interiors ? mods.interiors.colliders : [];
+  // Коллайдеры соседей QazaqGaz
+  const neighborBoxes = [
+    { x: 162, y: 0, z: 150, w: 52, d: 26, h: 29, yaw: 0 },
+    { x: 314, y: 0, z: 152, w: 62, d: 20, h: 32, yaw: 0 },
+  ];
+  collider.fn = makeCollider(list, [...solidZones, ...solidSig, ...interiorColliders, ...neighborBoxes]);
+
   $("loadLabel").textContent = "Компиляция шейдеров";
   $("loadBar").style.width = "96%";
   await tick();
@@ -312,12 +387,16 @@ window.__app = {
     loadWrap.classList.add("done");
     setTimeout(() => loadWrap.remove(), 900);
   }
-  // URL параметры (instant = true чтобы стартовать сразу в нужном режиме/ракурсе без смаза)
+
   const cyberParam = P.get("cyber");
   if (cyberParam === "1" || cyberParam === "true") setCyber(true, true);
-  { const mc = P.get("cam"), ml = P.get("tgt");
-    if (mc) { const p = mc.split(",").map(Number); camera.position.set(p[0], p[1], p[2]);
-      const q = ml ? ml.split(",").map(Number) : [0, 85, 0]; camera.lookAt(q[0], q[1], q[2]); controls.syncFromCamera(); } }
+  {
+    const mc = P.get("cam"), ml = P.get("tgt");
+    if (mc) {
+      const p = mc.split(",").map(Number); camera.position.set(p[0], p[1], p[2]);
+      const q = ml ? ml.split(",").map(Number) : [0, 85, 0]; camera.lookAt(q[0], q[1], q[2]); controls.syncFromCamera();
+    }
+  }
   if (P.has("autostart")) {
     overlay.style.display = "none";
     overlay.classList.add("hidden");
@@ -329,7 +408,6 @@ window.__app = {
     if (P.has("cam")) controls.enabled = P.has("free");
   }
   if (P.has("cine")) setTimeout(() => { if (P.has("cineT")) controls.cineT = parseFloat(P.get("cineT")) || 0; controls.enterCinematic(); }, 200);
-  // view param — мгновенный переход на ракурс при загрузке страницы
   const viewParam = P.get("view");
   if (viewParam && CAM_VIEWS[viewParam]) {
     controls.goToView(viewParam, true);

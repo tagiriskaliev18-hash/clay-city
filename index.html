@@ -22,10 +22,9 @@
     --mag:   #FF2A85;
     --purple:#7B2FF7;
     --blue:  #1E90FF;
-    --acc:   #ffd9a8;    /* дневной акцент */
+    --acc:   #ffd9a8;
     --acc2:  #7cc4ff;
   }
-  /* Cyber-mode palette swap */
   body[data-cyber="1"] {
     --acc:  var(--cyan);
     --acc2: var(--mag);
@@ -52,6 +51,7 @@
     opacity:0; transition: opacity .9s ease;
   }
   #hud.on { opacity:1; }
+  #hud.off { opacity:0 !important; pointer-events:none; }
 
   .chip {
     position:absolute; font-size:11.5px; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
@@ -60,7 +60,6 @@
     border-radius:3px; transition: opacity .5s, color .8s;
   }
 
-  /* ── brand chip ── */
   #brand {
     top:16px; left:18px; display:flex; align-items:baseline; gap:10px;
     border-left:2px solid var(--acc); pointer-events:none;
@@ -70,7 +69,6 @@
   }
   #brand span { letter-spacing:.32em; color:var(--acc); font-size:10.5px; }
 
-  /* ── FPS chip ── */
   #perf {
     top:16px; right:18px; font-variant-numeric:tabular-nums; letter-spacing:.1em; font-size:11px;
   }
@@ -79,10 +77,10 @@
   /* ── Camera views panel (bottom-left) ── */
   #viewPanel {
     position:absolute; bottom:16px; left:18px; display:flex; flex-wrap:wrap; gap:6px;
-    pointer-events:auto; max-width:min(880px, 68vw);
+    pointer-events:auto; max-width:min(820px, 60vw);
   }
   .viewBtn {
-    padding:7px 12px; font:600 10.5px/1 "Manrope",system-ui,sans-serif; letter-spacing:.12em; text-transform:uppercase;
+    padding:7px 11px; font:600 10.5px/1 "Manrope",system-ui,sans-serif; letter-spacing:.11em; text-transform:uppercase;
     color:var(--dim); background:var(--panel); border:1px solid var(--hair); border-radius:3px;
     cursor:pointer; transition: color .3s, border-color .3s, background .3s;
     backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
@@ -91,33 +89,45 @@
   .viewBtn:hover { color:var(--ink); border-color:rgba(255,255,255,.28); }
   .viewBtn.active { color:var(--cyan); border-color:var(--cyan); }
 
-  /* ── Cyber toggle button (bottom-right) ── */
-  #cyberBtn {
-    position:absolute; bottom:16px; right:18px;
-    padding:10px 18px; font:700 11.5px/1 "Manrope",system-ui,sans-serif; letter-spacing:.18em; text-transform:uppercase;
+  /* ── Action dock (bottom-right: [G] ПЕШКОМ + [F] CYBERPUNK 2077) ── */
+  #actionDock {
+    position:absolute; bottom:16px; right:18px; display:flex; gap:8px; pointer-events:auto;
+  }
+  .actBtn {
+    padding:10px 16px; font:700 11px/1 "Manrope",system-ui,sans-serif; letter-spacing:.16em; text-transform:uppercase;
     color:var(--dim); background:var(--panel); border:1px solid var(--hair); border-radius:3px;
     cursor:pointer; transition: color .35s, border-color .35s, background .35s, box-shadow .35s;
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    pointer-events:auto;
+    pointer-events:auto; white-space:nowrap;
   }
-  #cyberBtn kbd {
-    display:inline-block; min-width:18px; padding:1px 5px; margin-right:8px;
+  .actBtn kbd {
+    display:inline-block; min-width:18px; padding:1px 5px; margin-right:7px;
     font:700 10px "Manrope",sans-serif; text-align:center; color:var(--ink);
     border:1px solid rgba(255,255,255,.24); border-bottom-width:2px; border-radius:3px;
     vertical-align:1px;
   }
-  #cyberBtn:hover { color:var(--ink); border-color:rgba(255,255,255,.32); }
-  #cyberBtn.active {
+  .actBtn:hover { color:var(--ink); border-color:rgba(255,255,255,.32); }
+  .actBtn.active {
     color:var(--cyan);
     border-color:var(--cyan);
     box-shadow: 0 0 18px rgba(0,245,255,.18), inset 0 0 12px rgba(0,245,255,.06);
   }
-  #cyberBtn.active kbd { color:var(--cyan); border-color:var(--cyan); }
+  .actBtn.active kbd { color:var(--cyan); border-color:var(--cyan); }
 
-  /* ── Help line (above cyber button) ── */
+  /* ── Enter/Exit prompt ── */
+  #enterPrompt {
+    position:absolute; left:50%; bottom:84px; transform:translate(-50%, 8px);
+    padding:10px 20px; font:700 11.5px/1 "Manrope",sans-serif; letter-spacing:.18em; text-transform:uppercase;
+    color:#fff; background:rgba(10,18,30,.85); border:1px solid var(--cyan); border-radius:3px;
+    box-shadow: 0 0 22px rgba(0,245,255,.24); backdrop-filter:blur(10px);
+    opacity:0; pointer-events:none; cursor:pointer; transition: opacity .25s, transform .25s;
+  }
+  #enterPrompt.show { opacity:1; transform:translate(-50%, 0); pointer-events:auto; }
+
+  /* ── Help line ── */
   #help {
-    position:absolute; bottom:62px; right:18px; white-space:nowrap; text-align:right;
-    line-height:1.4; letter-spacing:.06em; font-size:10.5px; text-transform:none;
+    position:absolute; top:16px; left:50%; transform:translateX(-50%); white-space:nowrap; text-align:center;
+    line-height:1.4; letter-spacing:.06em; font-size:10px; text-transform:none;
     padding:7px 11px;
   }
   #help kbd {
@@ -126,13 +136,11 @@
     border:1px solid rgba(255,255,255,.24); border-bottom-width:2px; border-radius:3px; text-align:center;
   }
 
-  /* ── crosshair (виден только при захвате мыши) ── */
   #crosshair {
     position:absolute; left:50%; top:50%; width:4px; height:4px; margin:-2px 0 0 -2px; border-radius:50%;
     background:rgba(255,255,255,.65); box-shadow:0 0 0 1px rgba(0,0,0,.35); opacity:0; transition:opacity .35s;
   }
 
-  /* ── Toast ── */
   #toast {
     position:fixed; z-index:6; left:50%; top:22px; transform:translate(-50%,-8px); padding:9px 20px;
     font-size:12px; font-weight:700; letter-spacing:.24em; text-transform:uppercase; color:var(--ink);
@@ -164,9 +172,9 @@
   }
   #overlay .note {
     margin-top:20px; font-size:12px; letter-spacing:.1em; color:var(--dim);
-    text-align:center; max-width:520px; line-height:1.7;
+    text-align:center; max-width:540px; line-height:1.7;
   }
-  #keys { margin-top:30px; display:flex; flex-wrap:wrap; justify-content:center; gap:9px; max-width:700px; }
+  #keys { margin-top:30px; display:flex; flex-wrap:wrap; justify-content:center; gap:9px; max-width:740px; }
   #keys div {
     display:flex; align-items:center; padding:7px 13px; font-size:12px; letter-spacing:.05em; color:var(--ink);
     background:var(--panel); border:1px solid var(--hair); border-radius:3px; backdrop-filter:blur(8px);
@@ -194,20 +202,19 @@
   #loadBar { height:100%; width:0; background:var(--acc); transition: width .5s ease; }
   #loadLabel { margin-top:12px; font-size:11px; letter-spacing:.32em; text-transform:uppercase; color:var(--dim); }
 
-  /* ── Error ── */
   #err {
     position:fixed; inset:0; z-index:50; display:none; align-items:center; justify-content:center;
     padding:40px; text-align:center; color:#ffb3b3; background:#14090b; font-size:16px; line-height:1.6;
   }
 
-  /* ── Responsive ── */
-  @media (max-width:640px) {
+  @media (max-width:740px) {
     #brand { top:10px; left:12px; padding:7px 10px; }
     #brand b { font-size:12px; }
     #perf { top:10px; right:12px; padding:7px 10px; }
-    #viewPanel { bottom:56px; left:10px; gap:4px; max-width:calc(100vw - 20px); }
-    .viewBtn { padding:6px 9px; font-size:9.5px; letter-spacing:.08em; }
-    #cyberBtn { bottom:10px; right:10px; padding:8px 14px; font-size:10.5px; }
+    #viewPanel { bottom:58px; left:10px; gap:4px; max-width:calc(100vw - 20px); }
+    .viewBtn { padding:6px 8px; font-size:9px; letter-spacing:.07em; }
+    #actionDock { bottom:10px; right:10px; }
+    .actBtn { padding:8px 12px; font-size:10px; }
     #help { display:none; }
   }
 </style>
@@ -227,20 +234,28 @@
       <button class="viewBtn" data-cam="bayterek">Байтерек</button>
       <button class="viewBtn" data-cam="akorda">Акорда</button>
       <button class="viewBtn" data-cam="khanShatyr">Хан Шатыр</button>
-      <button class="viewBtn" data-cam="abuDhabi">Abu Dhabi</button>
-      <button class="viewBtn" data-cam="pyramid">Пирамида</button>
+      <button class="viewBtn" data-cam="megaSilkWay">MEGA Silk Way</button>
+      <button class="viewBtn" data-cam="insideMega">Внутри MEGA</button>
+      <button class="viewBtn" data-cam="beijing">Beijing Palace</button>
+      <button class="viewBtn" data-cam="highvillPark">Highvill Park</button>
       <button class="viewBtn" data-cam="qazaqgaz">QazaqGaz</button>
+      <button class="viewBtn" data-cam="insideQG">Внутри QG</button>
       <button class="viewBtn" data-cam="street">Улица</button>
     </div>
 
+    <div id="enterPrompt">[V] Войти внутрь</div>
+
     <!-- Help keys -->
     <div id="help" class="chip">
-      <kbd>WASD</kbd>полёт <kbd>Q</kbd><kbd>E</kbd>высота <kbd>Shift</kbd>форсаж
-      <kbd>C</kbd>авто-облёт <kbd>H</kbd>интерфейс <kbd>Esc</kbd>курсор
+      <kbd>WASD</kbd>движение <kbd>G</kbd>пешком/полёт <kbd>V</kbd>войти <kbd>Q</kbd><kbd>E</kbd>высота
+      <kbd>Shift</kbd>ускорение <kbd>C</kbd>облёт <kbd>H</kbd>HUD
     </div>
 
-    <!-- Cyber toggle -->
-    <button id="cyberBtn"><kbd>F</kbd> CYBERPUNK 2077</button>
+    <!-- Action dock -->
+    <div id="actionDock">
+      <button id="walkBtn" class="actBtn"><kbd>G</kbd> ПЕШКОМ</button>
+      <button id="cyberBtn" class="actBtn"><kbd>F</kbd> CYBERPUNK 2077</button>
+    </div>
 
     <div id="crosshair"></div>
   </div>
@@ -250,17 +265,17 @@
   <div id="overlay">
     <div class="kicker">реальная Астана ⇄ cyberpunk 2077</div>
     <h1>ASTANA<em>2077</em></h1>
-    <div class="note">Кинематографичная трансформация реального проспекта Нуржол
-      в киберпанк-стимпанк мегаполис. Байтерек, Хан Шатыр, дирижабли, мегабашни, голограммы и летающий трафик.</div>
+    <div class="note">Кинематографичная трансформация реальной Астаны в киберпанк-мегаполис:
+      Байтерек, Акорда, QazaqGaz, MEGA Silk Way, Ботанический сад, Highvill Park и проходные 3D-интерьеры.</div>
     <div id="keys">
-      <div><kbd>W A S D</kbd>полёт</div>
+      <div><kbd>W A S D</kbd>движение</div>
       <div><kbd>Мышь</kbd>обзор</div>
-      <div><kbd>Q / E</kbd>вниз / вверх</div>
-      <div><kbd>Shift</kbd>форсаж</div>
+      <div><kbd>G</kbd>пешком / полёт</div>
+      <div><kbd>V</kbd>войти внутрь</div>
       <div><kbd>F</kbd>CYBERPUNK 2077</div>
       <div><kbd>C</kbd>авто-облёт</div>
     </div>
-    <div id="start">Клик — начать полёт</div>
+    <div id="start">Клик — начать прогулку / полёт</div>
   </div>
 
   <div id="loadWrap">

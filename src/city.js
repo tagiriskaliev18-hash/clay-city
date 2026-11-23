@@ -10,7 +10,6 @@ import * as THREE from "three";
 import { WORLD, ROADS } from "./config.js";
 import { U } from "./env.js";
 import { GB, revolve, tube, merge, place } from "./geom.js";
-import { leafSprite } from "./textures.js";
 
 /** Масштабирует UV плоскости в метры, чтобы PBR-текстуры тайлились в реальном масштабе. */
 function meterPlane(w, d, segW = 1, segD = 1) {
@@ -56,8 +55,10 @@ export function buildCity(scene, M, _ctx) {
       { x: 90,  z: 960,   w: 360, d: 280 },
       // Сквер у Триумфальной арки
       { x: 90,  z: 640,   w: 160, d: 120 },
-      // Сквер у QazaqGaz (ухоженный газон вокруг стилобата)
-      { x: 235, z: 155,   w: 118, d: 112 },
+      // Зелёный бульвар вокруг Ботанического сада и Highvill Park
+      { x: -420, z: 650,  w: 380, d: 200 },
+      // Сквер у QazaqGaz (ухоженный газон по бокам, не перекрывая парковку!)
+      { x: 235, z: 125,   w: 128, d: 52 },
     ];
     const parkGeos = [];
     for (const pk of parkSpecs) {
@@ -331,10 +332,9 @@ export function buildCity(scene, M, _ctx) {
     addM(glassGeos, M.glassClear, false);
   }
 
-  // ── 4б. РЕАЛЬНЫЕ УЛИЧНЫЕ ФОНАРИ И АЛЛЕЙНЫЕ ДЕРЕВЬЯ ВДОЛЬ ПРОСПЕКТОВ ──
+  // ── 4б. РЕАЛЬНЫЕ УЛИЧНЫЕ ФОНАРИ ВДОЛЬ ПРОСПЕКТОВ (3D-деревья строит streetlife.js) ──
   {
     const lampMatrices = [];
-    const treeMatrices = [];
     for (const rd of ROADS) {
       if (rd.type === "bridge") continue;
       const dx = rd.x1 - rd.x0, dz = rd.z1 - rd.z0;
@@ -351,19 +351,17 @@ export function buildCity(scene, M, _ctx) {
         if (Math.abs(bx + 560) < 92 && Math.abs(bz) < 92) continue;
         if (Math.abs(bx - 590) < 95 && Math.abs(bz) < 95) continue;
         if (Math.abs(bx - RX) < RW / 2 + 24) continue;
+        // Пропуск у пересечений крупных проспектов
+        if (rd.type !== "boulevard") {
+          const isHoriz = Math.abs(dx) > Math.abs(dz);
+          if (isHoriz && (Math.abs(bx + 760) < 20 || Math.abs(bx + 430) < 20 || Math.abs(bx - 90) < 20)) continue;
+          if (!isHoriz && (Math.abs(bz - 82) < 18 || Math.abs(bz + 82) < 18 || Math.abs(bz - 280) < 18 || Math.abs(bz - 460) < 18 || Math.abs(bz - 760) < 18 || Math.abs(bz - 1080) < 18 || Math.abs(bz + 260) < 18)) continue;
+        }
         const off = rd.type === "boulevard" ? 18 : rd.width / 2 + 2.2;
         for (const side of [-1, 1]) {
           const lx = bx + cos * off * side;
           const lz = bz - sin * off * side;
           lampMatrices.push(place(lx, 0.2, lz, ang - side * (Math.PI / 2)));
-        }
-        if (rd.type === "boulevard") {
-          for (const side of [-1, 1]) {
-            const tx = bx + cos * 24 * side;
-            const tz = bz - sin * 24 * side;
-            const sc = 8.5 + ((i * 37) % 10) * 0.35;
-            treeMatrices.push(place(tx, 0.32, tz, (i * 1.7) % 6.28, sc, sc * 1.08, sc));
-          }
         }
       }
     }
@@ -376,15 +374,6 @@ export function buildCity(scene, M, _ctx) {
       lampMatrices.forEach((m, i) => { poles.setMatrixAt(i, m); heads.setMatrixAt(i, m); });
       poles.frustumCulled = heads.frustumCulled = false;
       group.add(poles, heads);
-    }
-    if (treeMatrices.length) {
-      const p1 = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
-      const p2 = new THREE.PlaneGeometry(1, 1).rotateY(Math.PI / 2).translate(0, 0.5, 0);
-      const treeMat = M.std({ map: leafSprite(256, 23), alphaTest: 0.42, roughness: 0.88, metalness: 0, side: THREE.DoubleSide });
-      const trees = new THREE.InstancedMesh(merge([p1, p2]), treeMat, treeMatrices.length);
-      treeMatrices.forEach((m, i) => trees.setMatrixAt(i, m));
-      trees.frustumCulled = false; trees.receiveShadow = true;
-      group.add(trees);
     }
   }
 

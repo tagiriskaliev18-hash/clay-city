@@ -206,9 +206,9 @@ export function buildAirships(scene, M, ctx) {
   scene.add(airGroup);
 
   const CLASSES = [
-    { L: 200, D: 30, n: 3, speed: 30, hero: true },
-    { L: 140, D: 24, n: 3, speed: 22, hero: false },
-    { L: 70, D: 13, n: 2, speed: 46, hero: false },
+    { L: 200, D: 30, n: 1, speed: 14, hero: true },
+    { L: 130, D: 22, n: 1, speed: 16, hero: false },
+    { L: 80,  D: 14, n: 1, speed: 20, hero: false },
   ];
   const LIVERIES = [0x7a1f1f, 0x1d3a6b, 0x1f5a3c, 0x1b1b1e, 0xe9e2d0, 0x8a4a1e, 0x3a2a5e, 0x0f3d4a, 0x5c1f33, 0x2a3b2e, 0x6b5a2a, 0x20242a]
     .map((h) => new THREE.Color(h));
@@ -268,55 +268,37 @@ export function buildAirships(scene, M, ctx) {
       let spd = c.speed * (0.85 + r() * 0.3) * (r() < 0.5 ? 1 : -1);
 
       if (ci === 0 && i === 0) {
-        // ★ ФЛАГМАН QAZAQGAZ — летит в правом-верхнем небе за штаб-квартирой QazaqGaz (235, 155)!
-        // Идеально виден в ракурсе qazaqgaz [122, 88, 315] → [235, 68, 155] крупным боковым силуэтом с вывеской QAZAQGAZ!
+        // ★ ФЛАГМАН QAZAQGAZ — спокойно патрулирует на высоте y = 290 м ★
         pts = [
-          new THREE.Vector3(505, 174, 48),
-          new THREE.Vector3(415, 178, -28),
-          new THREE.Vector3(240, 188, -150),
-          new THREE.Vector3(-40, 205, -210),
-          new THREE.Vector3(-320, 215, -40),
-          new THREE.Vector3(-190, 205, 220),
-          new THREE.Vector3(160, 192, 290),
-          new THREE.Vector3(490, 182, 180),
+          new THREE.Vector3(520, 290, 40),
+          new THREE.Vector3(380, 292, -160),
+          new THREE.Vector3(40,  294, -260),
+          new THREE.Vector3(-380, 290, -140),
+          new THREE.Vector3(-420, 288, 180),
+          new THREE.Vector3(-60, 290, 320),
+          new THREE.Vector3(340, 292, 260),
+          new THREE.Vector3(530, 290, 160),
         ];
-        startT = 0.025; // стартует в верхней правой четверти кадра qazaqgaz (x≈475, y≈176, z≈20) боком к камере!
-        spd = 18;
-      } else if (ci === 0 && i === 1) {
-        // Тяжёлый флагман вдоль оси Нуржол — над Байтереком и Акордой
-        pts = [
-          new THREE.Vector3(-180, 235, -190),
-          new THREE.Vector3(240, 250, -140),
-          new THREE.Vector3(640, 265, -80),
-          new THREE.Vector3(820, 275, 180),
-          new THREE.Vector3(360, 260, 320),
-          new THREE.Vector3(-260, 245, 240),
-          new THREE.Vector3(-760, 255, 110),
-          new THREE.Vector3(-680, 245, -180),
-        ];
-        startT = 0.02; // виден над Байтереком и в панораме Нуржола!
-        spd = 26;
-      } else if (ci === 0 && i === 2) {
-        // Третий флагман — район Abu Dhabi Plaza / Хан Шатыр
-        pts = [
-          new THREE.Vector3(-420, 305, 340),
-          new THREE.Vector3(-820, 290, 210),
-          new THREE.Vector3(-980, 280, -140),
-          new THREE.Vector3(-540, 295, -360),
-          new THREE.Vector3(-40, 310, -320),
-          new THREE.Vector3(180, 300, 180),
-        ];
-        startT = 0.72;
-        spd = 24;
-      } else {
-        const n = 9 + ((r() * 3) | 0);
-        const baseR = 360 + r() * 780;
-        const alt = ci === 1 ? 260 + r() * 140 : 195 + r() * 120;
+        startT = 0.04;
+        spd = 14;
+      } else if (ci === 1) {
+        // Дальний дирижабль #2 — на высоте y = 350 м
+        const n = 8, baseR = 960;
         for (let k = 0; k < n; k++) {
           const a = (k / n) * TAU;
-          const rr = baseR + (r() - 0.5) * 220;
-          pts.push(new THREE.Vector3(Math.cos(a) * rr, alt + (r() - 0.5) * 65, Math.sin(a) * rr * 0.75));
+          pts.push(new THREE.Vector3(Math.cos(a) * baseR, 350 + Math.sin(k) * 8, Math.sin(a) * baseR * 0.8));
         }
+        startT = 0.35;
+        spd = 16;
+      } else {
+        // Дальний малый дирижабль #3 — на высоте y = 250 м
+        const n = 8, baseR = 900;
+        for (let k = 0; k < n; k++) {
+          const a = (k / n) * TAU;
+          pts.push(new THREE.Vector3(Math.cos(a) * baseR, 250 + Math.cos(k) * 8, Math.sin(a) * baseR * 0.85));
+        }
+        startT = 0.72;
+        spd = -20;
       }
       const curve = new THREE.CatmullRomCurve3(pts, true, "centripetal", 0.5);
       const liv = (ci === 0 && i === 0) ? new THREE.Color(0x0c345c) : LIVERIES[(r() * LIVERIES.length) | 0];
@@ -357,8 +339,8 @@ export function buildAirships(scene, M, ctx) {
     heroes.push({ s, spot, target, beam, ph: r() * TAU });
   });
 
-  // ========== ЛЕТАЮЩИЙ АЭРОТРАФИК (140 спинеров в воздушных коридорах + орбитах!) ==========
-  const spinnerCount = Math.round(144 * ((tier.particles) || 1));
+  // ========== ЛЕТАЮЩИЙ АЭРОТРАФИК (72 спинера в воздушных коридорах + орбитах) ==========
+  const spinnerCount = Math.round(72 * ((tier.particles) || 1));
   const spinnerGeo = merge([
     new THREE.BoxGeometry(1.9, 0.65, 3.8), // корпус
     new THREE.BoxGeometry(3.2, 0.16, 0.9).translate(0, 0.1, -0.4), // крылья

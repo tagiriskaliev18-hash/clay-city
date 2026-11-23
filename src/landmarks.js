@@ -386,6 +386,181 @@ function buildNurAlem(parent, M) {
   return { group: g, sphere };
 }
 
+// ---------- 5. MEGA SILK WAY (x: -180, z: +940, западнее Нур Алем) ----------
+function makeMallSignTexture(title, sub = "SHOPPING & ENTERTAINMENT") {
+  const c = document.createElement("canvas");
+  c.width = 1024; c.height = 192;
+  const g = c.getContext("2d");
+  g.fillStyle = "#101a2a";
+  g.fillRect(0, 0, 1024, 192);
+  g.fillStyle = "#e8344c";
+  g.fillRect(0, 0, 1024, 12);
+  g.fillRect(0, 180, 1024, 12);
+  g.fillStyle = "#ffffff";
+  g.font = "800 96px 'Segoe UI', Arial, sans-serif";
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillText(title, 512, 86);
+  g.fillStyle = "#62e2ff";
+  g.font = "600 26px 'Segoe UI', Arial, sans-serif";
+  g.fillText(sub, 512, 148);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+
+function makeMegaParkingTexture() {
+  const c = document.createElement("canvas");
+  c.width = 1024; c.height = 512;
+  const g = c.getContext("2d");
+  g.fillStyle = "#2b2e34";
+  g.fillRect(0, 0, 1024, 512);
+  g.strokeStyle = "#e2e6ea";
+  g.lineWidth = 3;
+  // Парковочные ряды и разметка проездов
+  for (const rowY of [88, 224, 360]) {
+    g.beginPath(); g.moveTo(28, rowY); g.lineTo(996, rowY); g.stroke();
+    g.beginPath(); g.moveTo(28, rowY + 72); g.lineTo(996, rowY + 72); g.stroke();
+    for (let x = 40; x <= 984; x += 26) {
+      g.beginPath(); g.moveTo(x, rowY); g.lineTo(x, rowY + 72); g.stroke();
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+
+function buildMegaSilkWay(parent, M) {
+  const P = L.megaSilkWay;
+  if (!P) return { group: new THREE.Group() };
+  const g = new THREE.Group();
+  g.position.set(P.x, 0, P.z);
+  g.name = "landmark-megasilkway";
+  parent.add(g);
+
+  const white = [], dark = [], glassBlue = [], glassSkylight = [], plaza = [], water = [];
+  const W = 240, D = 105, H = 16.5;
+  const hx = W / 2, hz = D / 2;
+
+  // 1. Внешние стены по периметру с ПОЛНОСТЬЮ ОТКРЫТЫМИ арками-входами:
+  //    Восточный (+X, к площади EXPO, проём z = -7..+7, y = 0..8.5)
+  //    Северный (-Z, к парковке, проём x = -7..+7, y = 0..8.5)
+  {
+    const BW = new GB(), BD = new GB(), BG = new GB();
+
+    // Южная сплошная стена (-Z нет, +Z юг)
+    BW.box(0, H / 2, +hz - 0.8, W, H, 1.6, 0);
+    BG.box(0, H * 0.55, +hz + 0.1, W - 24, 9.0, 0.2, 0);
+
+    // Западная стена (-X)
+    BW.box(-hx + 0.8, H / 2, 0, 1.6, H, D, 0);
+    BG.box(-hx - 0.1, H * 0.55, 0, 0.2, 9.0, D - 22, 0);
+
+    // Северная стена (-Z) с ОТКРЫТЫМ проёмом в центре (x = -7..+7, y = 0..8.5)
+    BW.box(-63.5, H / 2, -hz + 0.8, 113, H, 1.6, 0);
+    BW.box(+63.5, H / 2, -hz + 0.8, 113, H, 1.6, 0);
+    BW.box(0, 12.6, -hz + 0.8, 14.4, 7.8, 1.6, 0);
+    // Северная арочная входная рама и козырёк
+    BD.box(-7.5, 4.5, -hz - 2.2, 1.2, 9.0, 5.2, 0);
+    BD.box(+7.5, 4.5, -hz - 2.2, 1.2, 9.0, 5.2, 0);
+    BW.box(0, 9.4, -hz - 3.2, 22, 1.4, 7.2, 0);
+    BG.box(-64, H * 0.58, -hz - 0.1, 96, 8.2, 0.2, 0);
+    BG.box(+64, H * 0.58, -hz - 0.1, 96, 8.2, 0.2, 0);
+
+    // Восточная стена (+X, к Нур Алем) с ОТКРЫТЫМ главным арочным входом (z = -8..+8, y = 0..9.2)
+    BW.box(+hx - 0.8, H / 2, -30.25, 1.6, H, 44.5, 0);
+    BW.box(+hx - 0.8, H / 2, +30.25, 1.6, H, 44.5, 0);
+    BW.box(+hx - 0.8, 13.0, 0, 1.6, 7.2, 16.4, 0);
+    // Главный арочный портал на площади EXPO
+    BD.box(+hx + 2.8, 4.8, -8.6, 6.2, 9.6, 1.3, 0);
+    BD.box(+hx + 2.8, 4.8, +8.6, 6.2, 9.6, 1.3, 0);
+    BW.box(+hx + 3.5, 10.4, 0, 8.2, 2.2, 24, 0);
+    BG.box(+hx + 0.1, H * 0.58, -30.5, 0.2, 8.4, 34, 0);
+    BG.box(+hx + 0.1, H * 0.58, +30.5, 0.2, 8.4, 34, 0);
+
+    // Изогнутая белая алюминиевая волнообразная кровля (с центральными световыми фонарями!)
+    const segX = 24;
+    for (let i = 0; i < segX; i++) {
+      const t0 = i / segX, t1 = (i + 1) / segX;
+      const x0 = -hx + t0 * W, x1 = -hx + t1 * W;
+      const xm = (x0 + x1) * 0.5;
+      const dx = x1 - x0 + 0.35;
+      const wave = Math.sin(t0 * Math.PI * 3.0) * 3.2 + Math.sin(t0 * Math.PI) * 3.8;
+      const yRoof = H + 1.2 + wave;
+      // Северная и южная дуговые крылья крыши (оставляем полосу центрального зенитного фонаря z=-11..+11)
+      BW.box(xm, yRoof, -33, dx, 1.6, 44, 0);
+      BW.box(xm, yRoof, +33, dx, 1.6, 44, 0);
+      // Поперечные арочные фермы над стеклянным зенитным атриумом
+      BW.box(xm, yRoof + 1.6, 0, 1.1, 1.2, 23, 0);
+    }
+    white.push(BW.build());
+    dark.push(BD.build());
+    glassBlue.push(BG.build());
+
+    // Длинный арочный стеклянный световой фонарь по центральной оси кровли
+    const BSk = new GB();
+    BSk.box(0, H + 4.4, 0, W - 12, 1.6, 22, 0);
+    glassSkylight.push(BSk.build());
+  }
+
+  // 2. Площадь перед восточным входом (к EXPO Нур Алем) + уличные фонтаны
+  {
+    const BP = new GB();
+    BP.box(hx + 28, 0.10, 0, 56, 0.20, 118, 0);
+    for (const fz of [-26, +26]) {
+      BP.box(hx + 24, 0.42, fz, 15, 0.65, 15, 0);
+      water.push(new THREE.CylinderGeometry(6.2, 6.2, 0.22, 24).translate(hx + 24, 0.80, fz));
+    }
+    plaza.push(BP.build());
+  }
+
+  // 3. Большая северная открытая парковка с разметкой (между Улы Дала z=760 и MEGA z=887.5)
+  {
+    const pTex = makeMegaParkingTexture();
+    const pLot = new THREE.Mesh(
+      new THREE.PlaneGeometry(236, 98).rotateX(-Math.PI / 2),
+      M.std({ map: pTex, roughness: 0.82, polygonOffset: true, polygonOffsetFactor: -1 })
+    );
+    pLot.position.set(0, 0.04, -hz - 54);
+    pLot.receiveShadow = true;
+    g.add(pLot);
+  }
+
+  // 4. Светящиеся фасадные вывески MEGA SILK WAY (Север, Восток, Запад)
+  {
+    const mTex = makeMallSignTexture("MEGA SILK WAY");
+    const mMat = M.std({
+      map: mTex, emissiveMap: mTex, emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.88,
+      roughness: 0.25, metalness: 0.2,
+    });
+    const sNorth = new THREE.Mesh(new THREE.PlaneGeometry(21, 3.6), mMat);
+    sNorth.position.set(0, 10.6, -hz - 6.9);
+    sNorth.rotation.y = Math.PI;
+    g.add(sNorth);
+
+    const sEast = new THREE.Mesh(new THREE.PlaneGeometry(38, 7.2), mMat);
+    sEast.position.set(hx + 7.8, 13.5, 0);
+    sEast.rotation.y = Math.PI / 2;
+    g.add(sEast);
+
+    const sWest = new THREE.Mesh(new THREE.PlaneGeometry(38, 7.2), mMat);
+    sWest.position.set(-hx - 0.6, 13.8, 0);
+    sWest.rotation.y = -Math.PI / 2;
+    g.add(sWest);
+  }
+
+  addMerged(g, white, M.whitePaint, true, true);
+  addMerged(g, dark, M.darkMetal, true, true);
+  addMerged(g, glassBlue, M.glassBlue, false, true);
+  addMerged(g, glassSkylight, M.glassClear, false, false);
+  addMerged(g, plaza, M.graniteLight, false, true);
+  addMerged(g, water, M.turquoise, false, false);
+
+  return { group: g };
+}
+
 export function buildLandmarks(scene, M, ctx) {
   const group = new THREE.Group();
   group.name = "landmarks-main";
@@ -395,8 +570,9 @@ export function buildLandmarks(scene, M, ctx) {
   const khan = buildKhanShatyr(group, M);
   const pyramid = buildPyramid(group, M);
   const nurAlem = buildNurAlem(group, M);
+  const megaSilkWay = buildMegaSilkWay(group, M);
 
-  void pyramid; void nurAlem;
+  void pyramid; void nurAlem; void megaSilkWay;
 
   const anchors = {
     bayterek: bayterek.pos,

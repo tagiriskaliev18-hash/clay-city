@@ -1,12 +1,16 @@
 // ============================================================
-// ASTANA REAL v2 — signature.js
+// ASTANA REAL v5 — signature.js
 // Знаменитые небоскрёбы Астаны + Abu Dhabi Plaza (320 м)
-// + ★★★ ГЛАВНОЕ HERO-ЗДАНИЕ: Штаб-квартира АО «НК «QazaqGaz»
-//   (БЦ «Болашак», 18 этажей, 86 м — максимальная детализация!) ★★★
+// + ★★★ QazaqGaz HQ (точное воссоздание по 5 фото: трапециевидная
+//   18-этажная башня с шевронными балконами, стеклянной пирамидой,
+//   перголой-козырьком, ОТКРЫТЫМ входом, парковкой 14..22 и точными
+//   соседями Запад/Восток!) ★★★
+// + Beijing Palace Soluxe (3-ярусная бирюзовая пагода + открытый вход)
+// + Highvill Park (6 башен) и Highvill Astana (4 башни)
 // ============================================================
 import * as THREE from "three";
 import { SIGNATURE, LANDMARKS } from "./config.js";
-import { GB, merge, ellipse, polyPrism, ngon } from "./geom.js";
+import { GB, merge, ellipse, polyPrism, ngon, tube } from "./geom.js";
 
 const sigById = (id) => SIGNATURE.find((s) => s.id === id);
 const L = LANDMARKS;
@@ -34,6 +38,28 @@ function slopedTower(w, d, h0, h1, yBase = 0) {
   return B.build();
 }
 
+/** Трапециевидный сужающийся объём: [w0,d0] на y0 → [w1,d1] на y1. */
+function taperedBox(w0, d0, w1, d1, y0, y1) {
+  const B = new GB();
+  const hx0 = w0 / 2, hz0 = d0 / 2, hx1 = w1 / 2, hz1 = d1 / 2;
+  const A0 = [-hx0, y0, -hz0], B0 = [hx0, y0, -hz0], C0 = [hx0, y0, hz0], D0 = [-hx0, y0, hz0];
+  const A1 = [-hx1, y1, -hz1], B1 = [hx1, y1, -hz1], C1 = [hx1, y1, hz1], D1 = [-hx1, y1, hz1];
+  const norm = (p0, p1, p2) => {
+    const ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
+    const vx = p2[0] - p0[0], vy = p2[1] - p0[1], vz = p2[2] - p0[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    return [nx / len, ny / len, nz / len];
+  };
+  const h = y1 - y0;
+  B.quad(B0, A0, A1, B1, norm(B0, A0, A1), [w0, 0], [0, 0], [(w0 - w1) / 2, h], [(w0 + w1) / 2, h]);
+  B.quad(C0, B0, B1, C1, norm(C0, B0, B1), [d0, 0], [0, 0], [(d0 - d1) / 2, h], [(d0 + d1) / 2, h]);
+  B.quad(D0, C0, C1, D1, norm(D0, C0, C1), [w0, 0], [0, 0], [(w0 - w1) / 2, h], [(w0 + w1) / 2, h]);
+  B.quad(A0, D0, D1, A1, norm(A0, D0, D1), [d0, 0], [0, 0], [(d0 - d1) / 2, h], [(d0 + d1) / 2, h]);
+  B.quad(A1, D1, C1, B1, [0, 1, 0], [0, 0], [0, d1], [w1, d1], [w1, 0]);
+  return B.build();
+}
+
 // ---------- ABU DHABI PLAZA (320 м — высочайший небоскрёб ЦА) ----------
 function buildAbuDhabi(parent, M) {
   const P = L.abuDhabi;
@@ -43,21 +69,18 @@ function buildAbuDhabi(parent, M) {
   parent.add(g);
 
   const glass = [], steel = [], brass = [], neon = [];
-  // Многоуровневый стилобат
   {
     const B = new GB();
     B.box(0, 9, 0, 122, 18, 114, 0);
     B.box(0, 22.5, 0, 106, 9, 98, 0);
     steel.push(B.build());
   }
-  // 4 ступенчатые стеклянные башни (до 320 м)
   glass.push(slopedTower(42, 36, 245, 275, 27));
   glass.push(slopedTower(30, 26, 302, 320, 27).translate(4, 0, -3));
   glass.push(slopedTower(30, 26, 192, 212, 27).translate(-36, 0, -24));
   glass.push(slopedTower(28, 24, 146, 164, 27).translate(36, 0, 26));
   glass.push(slopedTower(26, 24, 112, 128, 27).translate(-32, 0, 32));
 
-  // Вертикальные структурные рёбра и технические пояса (узнаваемый облик Foster+Partners)
   {
     const BS = new GB(), BB = new GB(), BN = new GB();
     for (let x = -18; x <= 18; x += 6) {
@@ -86,7 +109,7 @@ function buildAbuDhabi(parent, M) {
   addMerged(g, neon, M.neon(0x00f5ff, 4.5), false, false);
 }
 
-// ---------- EMERALD TOWERS I & II (изумрудные скошенные башни, 210 / 156 м) ----------
+// ---------- EMERALD TOWERS I & II (210 / 156 м) ----------
 function buildEmerald(parent, M, id) {
   const S = sigById(id);
   if (!S) return;
@@ -146,13 +169,9 @@ function buildTransport(parent, M) {
   addMerged(g, neon, M.neon(0x00f5ff, 4.5), false, false);
 }
 
-// ---------- NORTHERN LIGHTS «Северное сияние» (3 волнообразные башни, 180 / 152 / 128 м) ----------
+// ---------- NORTHERN LIGHTS «Северное сияние» (180 / 152 / 128 м) ----------
 function buildNorthLights(parent, M) {
-  const towers = [
-    sigById("northernLights1"),
-    sigById("northernLights2"),
-    sigById("northernLights3"),
-  ].filter(Boolean);
+  const towers = [sigById("northernLights1"), sigById("northernLights2"), sigById("northernLights3")].filter(Boolean);
   if (!towers.length) return;
 
   const cx = (towers[0].x + towers[towers.length - 1].x) / 2;
@@ -163,7 +182,6 @@ function buildNorthLights(parent, M) {
   parent.add(g);
 
   const glass = [], steel = [], neon = [];
-  // Общий центрированный стилобат под всеми 3 башнями
   { const B = new GB(); B.box(0, 6, 0, 108, 12, 44, 0); steel.push(B.build()); }
 
   for (const t of towers) {
@@ -187,7 +205,7 @@ function buildNorthLights(parent, M) {
   addMerged(g, neon, M.neon(0x46f2ff, 4.2), false, false);
 }
 
-// ---------- KMG GATE («Ворота КазМунайГаз» на Круглой площади, арка НАД осью Нуржол!) ----------
+// ---------- KMG GATE («Ворота КазМунайГаз») ----------
 function buildKmgGate(parent, M) {
   const S = sigById("kmgGate");
   if (!S) return;
@@ -199,15 +217,10 @@ function buildKmgGate(parent, M) {
   const stone = [], glass = [], gold = [];
   {
     const B = new GB();
-    // Два массивных крыла-пилона ПО ОБЕ СТОРОНЫ бульвара Нуржол (z = -46 и z = +46),
-    // оставляющих широкий проездной проём по оси X!
     B.box(0, 44, -46, 30, 88, 28, 0);
     B.box(0, 44, +46, 30, 88, 28, 0);
-    // Монументальный верхний мост-арка над бульваром Нуржол (y = 32..68)
     B.box(0, 52, 0, 28, 30, 116, 0);
-    // Центральная ступенчатая надстройка над аркой
     B.box(0, 76, 0, 24, 22, 56, 0);
-    // Полукруглые крылья Круглой площади (обрамляют площадь со стороны Запада)
     for (const side of [-1, 1]) {
       for (let k = 0; k < 5; k++) {
         const a = (k / 5) * 0.95 * side;
@@ -218,14 +231,12 @@ function buildKmgGate(parent, M) {
     }
     stone.push(B.build());
 
-    // Панорамные витражи фасадов (смотрят на восток +X к Байтереку и запад -X к Хан Шатыру)
     const BG = new GB();
     BG.box(0, 44, -46, 30.6, 76, 20, 0);
     BG.box(0, 44, +46, 30.6, 76, 20, 0);
     BG.box(0, 52, 0, 28.6, 22, 82, 0);
     glass.push(BG.build());
   }
-  // Золотой акцент-корона
   gold.push(new THREE.BoxGeometry(26, 2.0, 58).translate(0, 88, 0));
   gold.push(new THREE.CylinderGeometry(0.22, 0.8, 16, 8).translate(0, 97, 0));
 
@@ -234,7 +245,7 @@ function buildKmgGate(parent, M) {
   addMerged(g, gold, M.gold, false, true);
 }
 
-// ---------- TALAN TOWERS (золотисто-песчаные башни у Байтерека, 145 / 119 м) ----------
+// ---------- TALAN TOWERS ----------
 function buildTalan(parent, M) {
   const t1 = sigById("talan1");
   const t2 = sigById("talan2");
@@ -248,9 +259,7 @@ function buildTalan(parent, M) {
   const dx = t2 ? t2.x - t1.x : 30;
   { const B = new GB(); B.box(dx / 2, 7, 0, 74, 14, 42, 0); stone.push(B.build()); }
   glass.push(slopedTower(30, 26, 130, 145, 14));
-  if (t2) {
-    glass.push(slopedTower(26, 24, 102, 119, 14).translate(dx, 0, 0));
-  }
+  if (t2) glass.push(slopedTower(26, 24, 102, 119, 14).translate(dx, 0, 0));
   {
     const B = new GB();
     for (const ox of [0, dx]) {
@@ -262,34 +271,6 @@ function buildTalan(parent, M) {
   addMerged(g, glass, M.glassGold, true, true);
   addMerged(g, brass, M.brass, false, true);
   addMerged(g, stone, M.travertine, true, true);
-}
-
-// ---------- BEIJING PALACE SOLUXE (115 м) ----------
-function buildBeijing(parent, M) {
-  const S = sigById("beijingPalace");
-  if (!S) return;
-  const g = new THREE.Group();
-  g.position.set(S.x, 0, S.z);
-  g.name = "sig-beijing";
-  parent.add(g);
-
-  const stone = [], glass = [], gold = [];
-  {
-    const B = new GB();
-    B.box(0, 8, 0, 44, 16, 34, 0);
-    B.box(0, 61, 0, 38, 90, 26, 0);
-    B.box(0, 108, 0, 43, 4, 31, 0);
-    stone.push(B.build());
-    const BG = new GB();
-    BG.box(0, 61, 0, 38.6, 80, 20, 0);
-    glass.push(BG.build());
-  }
-  gold.push(new THREE.SphereGeometry(11.5, 28, 20).translate(0, 118, 0));
-  gold.push(new THREE.TorusGeometry(13.2, 0.6, 8, 36).rotateX(Math.PI / 2).translate(0, 111, 0));
-
-  addMerged(g, stone, M.travertine, true, true);
-  addMerged(g, glass, M.glassGold, false, true);
-  addMerged(g, gold, M.gold, true, true);
 }
 
 // ---------- TRIUMPH OF ASTANA (142 м) ----------
@@ -318,101 +299,274 @@ function buildTriumph(parent, M) {
   addMerged(g, gold, M.gold, false, true);
 }
 
+// ---------- Утилита текстовых вывесок ----------
+function makeBannerTex(text, { w = 512, h = 128, bg = "#0b1a2e", fg = "#ffffff", accent = "#00f5ff", sub = "" } = {}) {
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const g = c.getContext("2d");
+  g.fillStyle = bg;
+  g.fillRect(0, 0, w, h);
+  g.strokeStyle = accent;
+  g.lineWidth = 4;
+  g.strokeRect(4, 4, w - 8, h - 8);
+  g.fillStyle = fg;
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.font = `800 ${sub ? Math.round(h * 0.42) : Math.round(h * 0.52)}px 'Segoe UI', Arial, sans-serif`;
+  g.fillText(text, w / 2, sub ? h * 0.40 : h * 0.52);
+  if (sub) {
+    g.fillStyle = accent;
+    g.font = `600 ${Math.round(h * 0.22)}px 'Segoe UI', Arial, sans-serif`;
+    g.fillText(sub, w / 2, h * 0.78);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+
 // ============================================================
-// ★★★ QAZAQGAZ — ГЛАВНОЕ HERO-ЗДАНИЕ АСТАНЫ (ПРИОРИТЕТ #1!) ★★★
-// Штаб-квартира АО «НК «QazaqGaz» (БЦ «Болашак», 18 этажей, 86 м)
-// Координаты: x: 235, z: 155. Камера `qazaqgaz` смотрит с Юго-Запада (+Z / -X).
+// BEIJING PALACE SOLUXE HOTEL (x: -240, z: +390)
+// 3-ярусная традиционная китайская бирюзовая пагода с изогнутыми карнизами,
+// золотой шпиль, красно-золотая входная колоннада с ОТКРЫТЫМ проходом!
+// ============================================================
+function buildPagodaTier(roofGeos, trimGeos, yBase, w, d, h) {
+  const B = new GB();
+  const BT = new GB();
+  const hw = w / 2, hd = d / 2;
+  const rw = hw * 0.62, rd = hd * 0.62;
+  const eave = Math.min(w, d) * 0.12;
+  const lift = h * 0.22;
+
+  // Изогнутые скаты пагоды (верхний и нижний излом ската + загнутые вверх углы!)
+  const midY = yBase + h * 0.42;
+  const topY = yBase + h;
+  const midW = (hw + rw) * 0.52, midD = (hd + rd) * 0.52;
+
+  const cornersOut = [[-hw, yBase + lift, -hd], [hw, yBase + lift, -hd], [hw, yBase + lift, hd], [-hw, yBase + lift, hd]];
+  const cornersMid = [[-midW, midY, -midD], [midW, midY, -midD], [midW, midY, midD], [-midW, midY, midD]];
+  const cornersTop = [[-rw, topY, -rd], [rw, topY, -rd], [rw, topY, rd], [-rw, topY, rd]];
+
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    const A0 = cornersOut[i], A1 = cornersOut[j];
+    const M0 = cornersMid[i], M1 = cornersMid[j];
+    const T0 = cornersTop[i], T1 = cornersTop[j];
+    // Опущенный центр кромки карниза для настоящего прогиба китайской крыши
+    const sag = [(A0[0] + A1[0]) * 0.5, yBase, (A0[2] + A1[2]) * 0.5];
+    const sagM = [(M0[0] + M1[0]) * 0.5, midY - lift * 0.35, (M0[2] + M1[2]) * 0.5];
+
+    const calcN = (p0, p1, p2) => {
+      const ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
+      const vx = p2[0] - p0[0], vy = p2[1] - p0[1], vz = p2[2] - p0[2];
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      return [nx / l, ny / l, nz / l];
+    };
+
+    const nL1 = calcN(A1, sag, sagM);
+    B.quad(A1, sag, sagM, M1, nL1, [1, 0], [0.5, 0], [0.5, 1], [1, 1]);
+    const nL2 = calcN(sag, A0, M0);
+    B.quad(sag, A0, M0, sagM, nL2, [0.5, 0], [0, 0], [0, 1], [0.5, 1]);
+
+    const nU1 = calcN(M1, sagM, T0);
+    B.quad(M1, sagM, T0, T1, nU1, [1, 0], [0.5, 0], [0, 1], [1, 1]);
+    B.tri(sagM, M0, T0, nU1, [0.5, 0], [0, 0], [0, 1]);
+
+    // Подшив карниза снизу (чтобы не было дыр при взгляде вверх)
+    B.quad(sag, A1, M1, sagM, [0, -1, 0], [0, 0], [1, 0], [1, 1], [0, 1]);
+    B.quad(A0, sag, sagM, M0, [0, -1, 0], [0, 0], [1, 0], [1, 1], [0, 1]);
+
+    // Угловое ребро-конёк с загнутым кончиком
+    roofGeos.push(tube([
+      new THREE.Vector3(...T0),
+      new THREE.Vector3(...M0),
+      new THREE.Vector3(A0[0] * 1.03, A0[1] + eave * 0.25, A0[2] * 1.03),
+    ], 0.34, 6));
+  }
+  B.quad(cornersTop[0], cornersTop[3], cornersTop[2], cornersTop[1], [0, 1, 0], [0, 0], [0, rd * 2], [rw * 2, rd * 2], [rw * 2, 0]);
+  roofGeos.push(B.build());
+
+  // Золотой/красный фриз под карнизом
+  BT.box(0, yBase - 0.5, 0, w * 0.72, 1.3, d * 0.72, 0);
+  trimGeos.push(BT.build());
+}
+
+function buildBeijing(parent, M) {
+  const S = sigById("beijingPalace");
+  if (!S) return;
+  const g = new THREE.Group();
+  g.position.set(S.x, 0, S.z);
+  g.name = "sig-beijing";
+  parent.add(g);
+
+  const stone = [], glass = [], glassClear = [], turq = [], crimson = [], gold = [], asphalt = [], water = [];
+
+  // 1. Круговой подъездной путь + фонтан перед входом (+Z)
+  {
+    const BA = new GB();
+    BA.box(0, 0.04, 34, 66, 0.08, 30, 0);
+    asphalt.push(BA.build());
+
+    const BF = new GB();
+    BF.box(0, 0.35, 34, 18, 0.7, 14, 0);
+    stone.push(BF.build());
+    water.push(new THREE.CylinderGeometry(6.2, 6.2, 0.2, 24).translate(0, 0.75, 34));
+    gold.push(new THREE.CylinderGeometry(0.45, 0.9, 3.2, 10).translate(0, 2.2, 34));
+    gold.push(new THREE.SphereGeometry(0.85, 10, 8).translate(0, 3.9, 34));
+  }
+
+  // 2. Подиум с ОТКРЫТЫМ вестибюлем (пол x=-26..+26, z=-20..+20; южная стена z=+20 с проёмом ±2.4м!)
+  {
+    const BS = new GB();
+    // Подиум по бокам и сзади (оставляем полое лобби y=0..6.5 для interiors.js)
+    BS.box(-20.5, 5.5, 0, 11, 11, 40, 0);
+    BS.box(+20.5, 5.5, 0, 11, 11, 40, 0);
+    BS.box(0, 5.5, -17.5, 30, 11, 5, 0);
+    // Верхняя полка подиума НАД вестибюлем (y = 6.8 .. 12.5)
+    BS.box(0, 9.6, 0, 54, 5.6, 42, 0);
+    // Передняя стена 1 этажа по краям от открытого проёма (x = ±2.4 .. ±15)
+    BS.box(-9.2, 3.4, 19.6, 13.6, 6.8, 1.0, 0);
+    BS.box(+9.2, 3.4, 19.6, 13.6, 6.8, 1.0, 0);
+    BS.box(0, 5.5, 19.6, 5.2, 2.6, 1.0, 0);
+    stone.push(BS.build());
+
+    // Прозрачное остекление фасада вестибюля по бокам от входа
+    const BGc = new GB();
+    BGc.box(-9.2, 3.2, 20.15, 10.2, 4.8, 0.15, 0);
+    BGc.box(+9.2, 3.2, 20.15, 10.2, 4.8, 0.15, 0);
+    glassClear.push(BGc.build());
+  }
+
+  // 3. Красно-золотая входная китайская колоннада (+Z, z=+20..+25.5, открытый проход в центре!)
+  {
+    const BC = new GB(), BG = new GB();
+    for (const sx of [-1, 1]) {
+      for (const cx of [3.2, 8.2, 13.2]) {
+        crimson.push(new THREE.CylinderGeometry(0.45, 0.52, 6.2, 12).translate(sx * cx, 3.1, 24.4));
+        gold.push(new THREE.CylinderGeometry(0.62, 0.72, 0.45, 12).translate(sx * cx, 0.22, 24.4));
+        gold.push(new THREE.CylinderGeometry(0.65, 0.55, 0.55, 12).translate(sx * cx, 5.9, 24.4));
+      }
+    }
+    // Перекрытие портика + крыша входного портика пагоды
+    BC.box(0, 6.6, 22.6, 30, 1.2, 5.6, 0);
+    BG.box(0, 7.3, 22.6, 30.6, 0.4, 6.0, 0);
+    crimson.push(BC.build());
+    gold.push(BG.build());
+    buildPagodaTier(turq, gold, 7.6, 33, 8.6, 4.0);
+  }
+
+  // 4. Ступенчатая каменная и стеклянная башня (y = 12.4 .. 88 м)
+  {
+    const BS = new GB(), BGl = new GB(), BGd = new GB();
+    // Основной ступенчатый корпус
+    BS.box(0, 40, 0, 44, 56, 30, 0);
+    BS.box(0, 77, 0, 36, 18, 24, 0);
+    // Боковые вертикальные каменные пилоны и карнизы
+    for (const sx of [-1, 1]) {
+      BS.box(sx * 20.5, 40, 0, 4.5, 58, 31.2, 0);
+      BS.box(sx * 16.5, 77, 0, 3.5, 18, 25.0, 0);
+    }
+    stone.push(BS.build());
+
+    // Золотисто-бронзовое фасадное остекление
+    BGl.box(0, 41, 0, 36, 52, 30.8, 0);
+    BGl.box(0, 77, 0, 29, 16, 24.8, 0);
+    glass.push(BGl.build());
+
+    // Горизонтальные китайские золотые пояса-карнизы
+    for (const y of [13, 40, 68, 86]) {
+      BGd.box(0, y, 0, y > 68 ? 38 : 46.5, 1.4, y > 68 ? 26.5 : 32.5, 0);
+    }
+    gold.push(BGd.build());
+  }
+
+  // 5. Трёхъярусная бирюзовая крыша китайской пагоды + золотой шпиль (y = 88 .. 120 м)
+  buildPagodaTier(turq, crimson, 88, 46, 34, 7.5);
+  buildPagodaTier(turq, crimson, 96, 34, 25, 6.5);
+  buildPagodaTier(turq, gold, 103, 22, 16, 6.2);
+  // Золотой конёк и шпиль
+  gold.push(new THREE.BoxGeometry(10.5, 1.4, 1.2).translate(0, 109.6, 0));
+  gold.push(new THREE.CylinderGeometry(0.18, 0.72, 9.5, 10).translate(0, 114.5, 0));
+  gold.push(new THREE.SphereGeometry(0.95, 10, 8).translate(0, 114.0, 0));
+
+  // 6. Светящиеся вывески BEIJING PALACE (над входом и на вершине башни!)
+  const signTex = makeBannerTex("BEIJING PALACE", {
+    w: 512, h: 128, bg: "#6b0c12", fg: "#ffd97d", accent: "#ffb830", sub: "SOLUXE HOTEL · ASTANA",
+  });
+  const signMat = M.std({
+    map: signTex, emissiveMap: signTex, emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.92,
+    roughness: 0.28, metalness: 0.25,
+  });
+  const entSign = new THREE.Mesh(new THREE.PlaneGeometry(14, 3.2), signMat);
+  entSign.position.set(0, 6.8, 25.6);
+  g.add(entSign);
+
+  const topSignS = new THREE.Mesh(new THREE.PlaneGeometry(24, 5.2), signMat);
+  topSignS.position.set(0, 83.5, 13.4);
+  g.add(topSignS);
+  const topSignN = new THREE.Mesh(new THREE.PlaneGeometry(24, 5.2), signMat);
+  topSignN.position.set(0, 83.5, -13.4);
+  topSignN.rotation.y = Math.PI;
+  g.add(topSignN);
+
+  const crimsonMat = M.std({ color: 0x9c1616, roughness: 0.36, metalness: 0.14 });
+  addMerged(g, stone, M.travertine, true, true);
+  addMerged(g, glass, M.glassGold, false, true);
+  addMerged(g, glassClear, M.glassClear, false, false);
+  addMerged(g, turq, M.turquoise, true, true);
+  addMerged(g, crimson, crimsonMat, true, true);
+  addMerged(g, gold, M.gold, false, true);
+  addMerged(g, asphalt, M.asphalt, false, true);
+  addMerged(g, water, M.turquoise, false, false);
+}
+
+// ============================================================
+// ★★★ QAZAQGAZ HQ (x: 235, z: 155) + ТОЧНЫЕ СОСЕДИ (Запад/Восток) ★★★
 // ============================================================
 
-/** Рисует векторный фирменный знак QazaqGaz (стилизованное сине-голубое газовое пламя) без эмодзи! */
 function drawQazaqGazEmblem(ctx, cx, cy, r) {
   ctx.save();
   ctx.translate(cx, cy);
-  // Внешнее кольцо-орбита
-  const ringGrad = ctx.createLinearGradient(-r, -r, r, r);
-  ringGrad.addColorStop(0, "#00F5FF");
-  ringGrad.addColorStop(0.55, "#1E90FF");
-  ringGrad.addColorStop(1, "#0056B3");
-  ctx.strokeStyle = ringGrad;
-  ctx.lineWidth = r * 0.14;
-  ctx.beginPath();
-  ctx.arc(0, 0, r * 0.88, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // Внешний лепесток пламени (сине-циановый)
-  const flameGrad = ctx.createLinearGradient(0, r * 0.72, 0, -r * 0.82);
+  const flameGrad = ctx.createLinearGradient(0, r * 0.72, 0, -r * 0.85);
   flameGrad.addColorStop(0, "#0058C4");
   flameGrad.addColorStop(0.5, "#00A8FF");
   flameGrad.addColorStop(1, "#00F5FF");
   ctx.fillStyle = flameGrad;
   ctx.beginPath();
-  ctx.moveTo(0, -r * 0.76);
-  ctx.bezierCurveTo(r * 0.52, -r * 0.25, r * 0.58, r * 0.45, 0, r * 0.68);
-  ctx.bezierCurveTo(-r * 0.58, r * 0.45, -r * 0.52, -r * 0.25, 0, -r * 0.76);
+  ctx.moveTo(0, -r * 0.84);
+  ctx.bezierCurveTo(r * 0.56, -r * 0.25, r * 0.62, r * 0.48, 0, r * 0.74);
+  ctx.bezierCurveTo(-r * 0.62, r * 0.48, -r * 0.56, -r * 0.25, 0, -r * 0.84);
   ctx.closePath();
   ctx.fill();
 
-  // Внутренний светлый язычок пламени (чистый бирюзово-белый)
-  const innerGrad = ctx.createLinearGradient(0, r * 0.55, 0, -r * 0.35);
+  const innerGrad = ctx.createLinearGradient(0, r * 0.60, 0, -r * 0.32);
   innerGrad.addColorStop(0, "#70F8FF");
   innerGrad.addColorStop(1, "#FFFFFF");
   ctx.fillStyle = innerGrad;
   ctx.beginPath();
-  ctx.moveTo(0, -r * 0.28);
-  ctx.bezierCurveTo(r * 0.26, r * 0.04, r * 0.28, r * 0.42, 0, r * 0.56);
-  ctx.bezierCurveTo(-r * 0.28, r * 0.42, -r * 0.26, r * 0.04, 0, -r * 0.28);
+  ctx.moveTo(0, -r * 0.30);
+  ctx.bezierCurveTo(r * 0.28, r * 0.04, r * 0.30, r * 0.45, 0, r * 0.60);
+  ctx.bezierCurveTo(-r * 0.30, r * 0.45, -r * 0.28, r * 0.04, 0, -r * 0.30);
   ctx.closePath();
   ctx.fill();
   ctx.restore();
 }
 
-/** Создаёт кристально читаемую корпоративную вывеску QAZAQGAZ (CanvasTexture 1024×256). */
-function createQazaqGazSignTexture(compact = false) {
+function createQazaqGazSignTexture(lightBg = false) {
   const c = document.createElement("canvas");
-  c.width = 1024;
-  c.height = 256;
+  c.width = 1024; c.height = 256;
   const g = c.getContext("2d");
-
-  // Глубокий архитектурный тёмно-синий фасадный бэкплейт
-  const bg = g.createLinearGradient(0, 0, 1024, 256);
-  bg.addColorStop(0, "#071426");
-  bg.addColorStop(0.5, "#0b1e38");
-  bg.addColorStop(1, "#071426");
-  g.fillStyle = bg;
+  g.fillStyle = lightBg ? "rgba(232,235,238,0.96)" : "#0b1e38";
   g.fillRect(0, 0, 1024, 256);
 
-  // Тонкая фирменная верхняя и нижняя линии-акценты
-  const bar = g.createLinearGradient(0, 0, 1024, 0);
-  bar.addColorStop(0, "#0a4fb8");
-  bar.addColorStop(0.35, "#1E90FF");
-  bar.addColorStop(0.5, "#00F5FF");
-  bar.addColorStop(0.65, "#1E90FF");
-  bar.addColorStop(1, "#0a4fb8");
-  g.fillStyle = bar;
-  g.fillRect(0, 0, 1024, 10);
-  g.fillRect(0, 246, 1024, 10);
+  drawQazaqGazEmblem(g, 130, 128, 86);
 
-  // Векторная эмблема слева
-  drawQazaqGazEmblem(g, 146, 128, 76);
-
-  // Чёткая архитектурная типографика QAZAQGAZ
-  g.save();
-  g.fillStyle = "#FFFFFF";
-  g.shadowColor = "rgba(0, 210, 255, 0.55)";
-  g.shadowBlur = 16;
-  g.font = "800 112px 'Segoe UI', 'Arial', sans-serif";
+  g.fillStyle = lightBg ? "#192638" : "#ffffff";
+  g.font = "800 124px 'Segoe UI', Arial, sans-serif";
   g.textAlign = "left";
   g.textBaseline = "middle";
-  g.fillText("QAZAQGAZ", 252, compact ? 132 : 114);
-  g.restore();
-
-  if (!compact) {
-    g.fillStyle = "#7AD8FF";
-    g.font = "600 30px 'Segoe UI', 'Arial', sans-serif";
-    g.textAlign = "left";
-    g.textBaseline = "middle";
-    g.fillText("NATIONAL COMPANY  ·  ҰЛТТЫҚ КОМПАНИЯСЫ", 258, 192);
-  }
+  g.fillText("QAZAQGAZ", 232, 132);
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -420,18 +574,64 @@ function createQazaqGazSignTexture(compact = false) {
   return tex;
 }
 
-/** Создаёт процедурные флаги РК, QazaqGaz и ICA для 3 флагштоков. */
+function createDiamondForecourtTexture() {
+  const c = document.createElement("canvas");
+  c.width = 512; c.height = 512;
+  const g = c.getContext("2d");
+  g.fillStyle = "#8a827a";
+  g.fillRect(0, 0, 512, 512);
+  const step = 64;
+  g.strokeStyle = "#484440";
+  g.lineWidth = 4;
+  for (let i = -512; i <= 1024; i += step) {
+    g.beginPath(); g.moveTo(i, 0); g.lineTo(i + 512, 512); g.stroke();
+    g.beginPath(); g.moveTo(i, 512); g.lineTo(i + 512, 0); g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(6, 2);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+function createNumberedParkingTexture() {
+  const c = document.createElement("canvas");
+  c.width = 1024; c.height = 256;
+  const g = c.getContext("2d");
+  g.fillStyle = "#32353a";
+  g.fillRect(0, 0, 1024, 256);
+  const bays = 9; // 14..22
+  const bw = 1024 / bays;
+  g.strokeStyle = "#f2c12e";
+  g.lineWidth = 7;
+  for (let i = 0; i <= bays; i++) {
+    const x = i * bw;
+    g.beginPath();
+    g.moveTo(x + 28, 10);
+    g.lineTo(x - 18, 246);
+    g.stroke();
+  }
+  g.fillStyle = "#f2c12e";
+  g.font = "800 54px 'Segoe UI', Arial, sans-serif";
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  for (let i = 0; i < bays; i++) {
+    g.fillText(String(14 + i), (i + 0.45) * bw, 198);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
 function createFlagTexture(kind) {
   const c = document.createElement("canvas");
   c.width = 256; c.height = 160;
   const g = c.getContext("2d");
   if (kind === "rk") {
-    g.fillStyle = "#00AFCA";
-    g.fillRect(0, 0, 256, 160);
-    // Золотой орнамент слева
-    g.fillStyle = "#FEC50C";
-    g.fillRect(14, 10, 12, 140);
-    // Золотое солнце с лучами
+    g.fillStyle = "#00AFCA"; g.fillRect(0, 0, 256, 160);
+    g.fillStyle = "#FEC50C"; g.fillRect(14, 10, 12, 140);
     g.beginPath(); g.arc(138, 76, 24, 0, Math.PI * 2); g.fill();
     g.strokeStyle = "#FEC50C"; g.lineWidth = 3;
     for (let i = 0; i < 16; i++) {
@@ -441,31 +641,19 @@ function createFlagTexture(kind) {
       g.lineTo(138 + Math.cos(a) * 38, 76 + Math.sin(a) * 38);
       g.stroke();
     }
-    // Парящий беркут под солнцем
-    g.beginPath();
-    g.moveTo(96, 110); g.quadraticCurveTo(138, 126, 180, 110);
-    g.quadraticCurveTo(138, 116, 96, 110); g.fill();
   } else if (kind === "qg") {
-    g.fillStyle = "#0A2A5E";
-    g.fillRect(0, 0, 256, 160);
-    g.fillStyle = "#00C8FF";
-    g.fillRect(0, 142, 256, 18);
+    g.fillStyle = "#0A2A5E"; g.fillRect(0, 0, 256, 160);
+    g.fillStyle = "#00C8FF"; g.fillRect(0, 142, 256, 18);
     drawQazaqGazEmblem(g, 74, 74, 38);
-    g.fillStyle = "#FFFFFF";
-    g.font = "bold 28px 'Segoe UI', Arial, sans-serif";
+    g.fillStyle = "#FFFFFF"; g.font = "bold 28px 'Segoe UI', Arial, sans-serif";
     g.textAlign = "left"; g.textBaseline = "middle";
     g.fillText("QAZAQ", 122, 62);
-    g.fillStyle = "#00E8FF";
-    g.fillText("GAZ", 122, 92);
+    g.fillStyle = "#00E8FF"; g.fillText("GAZ", 122, 92);
   } else {
-    g.fillStyle = "#0055A5";
-    g.fillRect(0, 0, 256, 160);
-    g.fillStyle = "#FFFFFF";
-    g.fillRect(0, 128, 256, 8);
-    g.fillStyle = "#00D4FF";
-    g.fillRect(0, 136, 256, 24);
-    g.fillStyle = "#FFFFFF";
-    g.font = "bold 46px 'Segoe UI', Arial, sans-serif";
+    g.fillStyle = "#0055A5"; g.fillRect(0, 0, 256, 160);
+    g.fillStyle = "#FFFFFF"; g.fillRect(0, 128, 256, 8);
+    g.fillStyle = "#00D4FF"; g.fillRect(0, 136, 256, 24);
+    g.fillStyle = "#FFFFFF"; g.font = "bold 46px 'Segoe UI', Arial, sans-serif";
     g.textAlign = "center"; g.textBaseline = "middle";
     g.fillText("ICA", 128, 68);
   }
@@ -477,281 +665,520 @@ function createFlagTexture(kind) {
 
 function buildQazaqGaz(parent, M) {
   const P = L.qazaqGaz;
-  if (!P) return { group: new THREE.Group() };
+  if (!P) return;
   const g = new THREE.Group();
   g.position.set(P.x, 0, P.z);
   g.name = "qazaqgaz-hero";
   parent.add(g);
 
-  const granite = [], granLight = [], glassBlue = [], glassLobby = [], steel = [], chrome = [], darkMetal = [], warmGlow = [], neon = [];
+  const espresso = [], glassTeal = [], glassClear = [];
+  const steel = [], white = [], darkMetal = [], chrome = [], wood = [], terracotta = [], purple = [], glowWarm = [], neonBlue = [];
 
-  // ── 1. 3-ЭТАЖНЫЙ ГРАНИТНО-СТЕКЛЯННЫЙ СТИЛОБАТ (h = 13.5 м) ──
-  // Парадный фасад ориентирован на Юг (+Z, прямо к ракурсу камеры qazaqgaz!),
-  // и второй презентабельный фасад — на Север (-Z, к бульвару Нуржол и Дому Министерств).
+  // ── 1. 2-ЭТАЖНОЕ ТЁМНО-ШОКОЛАДНОЕ ГРАНИТНОЕ ОСНОВАНИЕ (y = 0..9.6 м) С ПОЛЫМ ЛОББИ ──
+  // Внешние габариты основания: 44 × 35 м (x: ±22, z: ±17.5).
+  // На Юге (+Z, z=+17.5) — ОТКРЫТЫЙ 4.4 м проём (x = -2.2 .. +2.2) прямо в лобби!
   {
-    const BG = new GB();
-    // Гранитный подиум-плаза (68 × 58 м) + 3-этажное тело стилобата
-    BG.box(0, 0.9, 0, 74, 1.8, 64, 0);
-    BG.box(0, 7.6, 0, 62, 11.8, 46, 0);
-    // Угловые массивные гранитные пилоны стилобата
+    const BE = new GB();
+    // Задняя (-Z) и боковые (±X) грани 2-этажного подиума + пол второго перекрытия над лобби
+    BE.box(0, 4.8, -16.8, 44, 9.6, 1.4, 0);
+    BE.box(-21.2, 4.8, 0, 1.6, 9.6, 35, 0);
+    BE.box(+21.2, 4.8, 0, 1.6, 9.6, 35, 0);
+    // Плита перекрытия над 1-м этажом вестибюля (y = 5.4..9.6 м на передней половине)
+    BE.box(0, 7.6, 0, 42, 4.0, 34, 0);
+    // 4 тёмно-коричневые гранитные колонны-пилоны вдоль южного стеклянного фасада (фото 02/03/05)
+    for (const cx of [-20.0, -10.8, +10.8, +20.0]) {
+      BE.box(cx, 4.8, 17.3, 2.5, 9.6, 1.4, 0);
+    }
+    // Плита площадки тамбура (y = 0..0.54) + 3 тёмные гранитные ступени на южном крыльце (+Z)
+    BE.box(0, 0.27, 19.5, 22.5, 0.54, 4.6, 0);
+    for (let s = 0; s < 3; s++) {
+      BE.box(1.5, 0.09 + s * 0.18, 23.6 - s * 0.72, 24, 0.18, 0.92, 0);
+    }
+    BE.box(-10.5, 0.27, 22.8, 4.0, 0.54, 4.2, 0);
+    espresso.push(BE.build());
+
+    // Прозрачное остекление 2-го яруса базы (y = 5.0..9.4) и боковых окон 1-го этажа
+    const BGl = new GB();
+    BGl.box(-15.4, 2.7, 17.2, 7.0, 4.4, 0.2, 0);
+    BGl.box(+15.4, 2.7, 17.2, 7.0, 4.4, 0.2, 0);
+    BGl.box(0, 7.2, 17.2, 39.0, 4.0, 0.2, 0);
+    glassClear.push(BGl.build());
+  }
+
+  // ── 2. ВЫСТУПАЮЩИЙ СТЕКЛЯННЫЙ ТАМБУР-ВЕСТИБЮЛЬ И ОТКРЫТЫЕ ДВЕРИ (x: ±8.8, z: +17.3..+21.4) ──
+  {
+    const BW = new GB(), BS = new GB(), BG = new GB();
+    // Белый верхний фриз тамбура (y = 3.95..4.75)
+    BW.box(0, 4.35, 19.4, 17.8, 0.80, 4.4, 0);
+    // Стеклянные панели тамбура слева и справа от ЦЕНТРАЛЬНОГО ОТКРЫТОГО ПРОЁМА (x = -2.2..+2.2!)
+    BG.box(-5.5, 2.25, 21.35, 6.2, 3.4, 0.14, 0);
+    BG.box(+5.5, 2.25, 21.35, 6.2, 3.4, 0.14, 0);
+    BG.box(-8.8, 2.25, 19.4, 0.14, 3.4, 4.0, 0);
+    BG.box(+8.8, 2.25, 19.4, 0.14, 3.4, 4.0, 0);
+    // Открытые наружу/внутрь стеклянные створки центральных двойных дверей
     for (const sx of [-1, 1]) {
-      for (const sz of [-1, 1]) {
-        BG.box(sx * 31.2, 7.6, sz * 23.2, 4.2, 12.2, 4.2, 0);
-      }
+      BS.box(sx * 2.25, 2.25, 21.35, 0.12, 3.45, 0.18, 0);
+      BG.box(sx * 2.45, 2.25, 20.5, 0.08, 3.2, 1.5, sx * 0.25);
     }
-    granite.push(BG.build());
-
-    // Светлый гранитный парадный марш-лестница (на +Z к площади и камере, + второй на -Z)
-    const BL = new GB();
-    for (let step = 0; step < 6; step++) {
-      const sy = 0.25 + step * 0.28;
-      const szOut = 32 + (5 - step) * 1.15;
-      BL.box(0, sy / 2, szOut, 30, sy, 1.25, 0);
-      BL.box(0, sy / 2, -szOut, 24, sy, 1.25, 0);
+    // Серебристые рамы тамбура
+    for (const mx of [-8.8, -6.6, -4.4, -2.2, 2.2, 4.4, 6.6, 8.8]) {
+      BS.box(mx, 2.25, 21.38, 0.10, 3.45, 0.12, 0);
     }
-    // Декоративные гранитные цветочницы-тумбы по бокам лестницы
-    for (const sx of [-1, 1]) {
-      BL.box(sx * 20, 1.1, 35, 8.5, 2.2, 6.5, 0);
-      BL.box(sx * 20, 1.1, -35, 8.5, 2.2, 6.5, 0);
+    // Ребристый матово-стеклянный козырёк над тамбуром (фото 02/03/05)
+    for (let bx = -6.6; bx <= 6.6; bx += 2.2) {
+      BS.box(bx, 4.92, 22.8, 0.14, 0.22, 3.6, 0);
     }
-    granLight.push(BL.build());
+    BW.box(0, 4.95, 24.5, 14.0, 0.16, 0.18, 0);
+    BG.box(0, 5.05, 22.8, 13.8, 0.08, 3.4, 0);
 
-    // Двухсветный прозрачный остеклённый вестибюль + тёплый подсвеченный интерьерный холл
-    const BLob = new GB();
-    BLob.box(0, 7.2, 23.2, 46, 10.6, 0.8, 0);
-    BLob.box(0, 7.2, -23.2, 46, 10.6, 0.8, 0);
-    BLob.box(-31.2, 7.2, 0, 0.8, 10.6, 36, 0);
-    BLob.box(+31.2, 7.2, 0, 0.8, 10.6, 36, 0);
-    glassLobby.push(BLob.build());
+    white.push(BW.build());
+    steel.push(BS.build());
+    glassClear.push(BG.build());
+  }
 
-    // Тёплое световое панно потолка вестибюля (эффект живого интерьера за стеклом)
+  // ── 3. ИЗОГНУТАЯ БЕЛАЯ ПЕРФОРИРОВАННАЯ ПЕРГОЛА-КОЗЫРЁК (y = 9.8 м, фото 03 & 05) ──
+  {
     const BW = new GB();
-    BW.box(0, 11.4, 22.0, 42, 0.4, 2.2, 0);
-    BW.box(0, 11.4, -22.0, 42, 0.4, 2.2, 0);
-    warmGlow.push(BW.build());
-
-    // 8 монументальных стройных колонн входного портала (+Z главный вход, и 6 на -Z)
-    for (let i = 0; i < 8; i++) {
-      const cx = -17.5 + i * 5.0;
-      granLight.push(new THREE.CylinderGeometry(0.55, 0.65, 11.6, 14).translate(cx, 7.6, 26.8));
-      chrome.push(new THREE.CylinderGeometry(0.72, 0.72, 0.45, 14).translate(cx, 2.0, 26.8));
-      chrome.push(new THREE.CylinderGeometry(0.70, 0.70, 0.45, 14).translate(cx, 13.2, 26.8));
+    const nSeg = 14;
+    const xSpan = 17.5;
+    for (let i = 0; i < nSeg; i++) {
+      const t0 = i / nSeg, t1 = (i + 1) / nSeg;
+      const x0 = -xSpan + t0 * xSpan * 2, x1 = -xSpan + t1 * xSpan * 2;
+      const zOut0 = 20.5 + 4.4 * Math.sin(t0 * Math.PI);
+      const zOut1 = 20.5 + 4.4 * Math.sin(t1 * Math.PI);
+      const xm = (x0 + x1) * 0.5, zm = (zOut0 + zOut1) * 0.5;
+      const segL = Math.hypot(x1 - x0, zOut1 - zOut0) + 0.12;
+      const ang = -Math.atan2(zOut1 - zOut0, x1 - x0);
+      // Наружная дугообразная балка с белым фризом
+      BW.box(xm, 9.95, zm, segL, 1.35, 0.85, ang);
+      // Внутренняя продольная перемычка
+      const zIn0 = 17.8 + 2.4 * Math.sin(t0 * Math.PI);
+      const zIn1 = 17.8 + 2.4 * Math.sin(t1 * Math.PI);
+      BW.box((x0 + x1) * 0.5, 9.75, (zIn0 + zIn1) * 0.5, segL, 0.45, 0.55, ang);
     }
-    for (let i = 0; i < 6; i++) {
-      const cx = -12.5 + i * 5.0;
-      granLight.push(new THREE.CylinderGeometry(0.50, 0.60, 11.4, 12).translate(cx, 7.5, -26.2));
+    // Поперечные рёбра перголы (открытые квадратные ячейки!)
+    for (let i = 0; i <= nSeg; i++) {
+      const t = i / nSeg;
+      const rx = -xSpan + t * xSpan * 2;
+      const zOut = 20.5 + 4.4 * Math.sin(t * Math.PI);
+      const len = zOut - 17.2;
+      BW.box(rx, 9.75, 17.2 + len * 0.5, 0.42, 0.48, len, 0);
     }
+    white.push(BW.build());
+  }
 
-    // Широкий консольный стеклянный козырёк со стальными тягами и хромированной рамой (+Z и -Z)
-    for (const sz of [1, -1]) {
-      const BS = new GB();
-      BS.box(0, 13.8, sz * 27.6, 40, 0.55, 9.6, 0);
-      // Поручни парадной лестницы
-      for (const rx of [-14.6, 0, 14.6]) {
-        BS.box(rx, 2.1, sz * 35, 0.12, 0.95, 7.2, 0);
+  // ── 4. ТРАПЕЦИЕВИДНАЯ 18-ЭТАЖНАЯ БАШНЯ (y = 9.6..72.5 м) + БИРЮЗОВЫЙ ВИТРАЖ + КОРИЧНЕВЫЕ ПИЛЯСТРЫ ──
+  // Сужается с 42.4×34 м у основания до 36.2×29.4 м наверху (фото 01!)
+  {
+    glassTeal.push(taperedBox(42.4, 34.0, 36.2, 29.4, 9.6, 65.5));
+    // Верхний светлый двухсветный этаж + серебристый карниз (y = 65.5..73.2 м)
+    glassTeal.push(taperedBox(36.2, 29.4, 35.2, 28.8, 65.5, 71.2));
+    const BW = new GB();
+    BW.box(0, 72.3, 0, 36.4, 2.2, 30.0, 0);
+    BW.box(0, 65.4, 0, 36.8, 0.7, 30.2, 0);
+    white.push(BW.build());
+
+    // Сужающиеся тёмно-коричневые гранитные угловые пилоны + серебристая кайма (фото 01/03)
+    const BE = new GB(), BS = new GB();
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const steps = 14;
+    for (let i = 0; i < steps; i++) {
+      const t = (i + 0.5) / steps;
+      const y = lerp(9.6, 65.5, t);
+      const sh = (65.5 - 9.6) / steps + 0.12;
+      const halfW = lerp(21.2, 18.1, t);
+      const halfD = lerp(17.0, 14.7, t);
+      const pilW = lerp(4.8, 1.9, t);
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          BE.box(sx * (halfW - pilW * 0.45), y, sz * (halfD + 0.15), pilW, sh, 0.9, 0);
+          // Серебристо-серая металлическая кайма вокруг коричневого пилона
+          BS.box(sx * (halfW - pilW - 0.35), y, sz * (halfD + 0.25), 0.75, sh, 1.0, 0);
+          BS.box(sx * (halfW + 0.25), y, sz * (halfD - 0.1), 0.65, sh, 1.1, 0);
+        }
+        // Боковые (±X) гранитные простенки на углах
+        BE.box(sx * (halfW + 0.15), y, -halfD + 2.0, 0.9, sh, 3.8, 0);
+        BE.box(sx * (halfW + 0.15), y, +halfD - 2.0, 0.9, sh, 3.8, 0);
       }
-      steel.push(BS.build());
-      const BKg = new GB();
-      BKg.box(0, 14.18, sz * 27.6, 38.6, 0.16, 8.6, 0);
-      glassLobby.push(BKg.build());
-      // Стальные ванты-подвесы козырька
-      for (const tx of [-15, -5, 5, 15]) {
-        chrome.push(new THREE.CylinderGeometry(0.08, 0.08, 7.5, 6)
-          .rotateX(sz * 0.72)
-          .translate(tx, 16.4, sz * 28.8));
+    }
+    // Горизонтальные межэтажные пояса и вертикальные импосты витража
+    for (let fl = 0; fl < 15; fl++) {
+      const t = fl / 15;
+      const y = 10.2 + fl * 3.68;
+      const hw = lerp(21.2, 18.1, t) * 2;
+      const hd = lerp(17.0, 14.7, t) * 2;
+      BS.box(0, y, hd * 0.5 + 0.1, hw - 4, 0.28, 0.28, 0);
+      BS.box(0, y, -hd * 0.5 - 0.1, hw - 4, 0.28, 0.28, 0);
+      BS.box(hw * 0.5 + 0.1, y, 0, 0.28, 0.28, hd - 4, 0);
+      BS.box(-hw * 0.5 - 0.1, y, 0, 0.28, 0.28, hd - 4, 0);
+    }
+    for (let lx = -12; lx <= 12; lx += 3.0) {
+      BS.box(lx, 38, +16.0, 0.22, 56, 0.3, 0);
+      BS.box(lx, 38, -16.0, 0.22, 56, 0.3, 0);
+    }
+    espresso.push(BE.build());
+    steel.push(BS.build());
+
+    // ── 5. 15 ВЫСТУПАЮЩИХ ШЕВРОННЫХ (V-ОБРАЗНЫХ) БАЛКОНОВ ПО ЦЕНТРУ +Z И -Z (фото 01/02/03) ──
+    const BBal = new GB(), BRail = new GB();
+    for (let fl = 0; fl < 15; fl++) {
+      const t = fl / 15;
+      const y = 10.6 + fl * 3.68;
+      const faceZ = lerp(17.0, 14.7, t);
+      for (const sz of [1, -1]) {
+        const zBase = sz * faceZ;
+        const tipZ = zBase + sz * 2.15;
+        const wingZ = zBase + sz * 0.55;
+        // Левое и правое крыло V-образного шевронного балкона
+        const aL = sz * 0.29, aR = -sz * 0.29;
+        BBal.box(-2.6, y, (tipZ + wingZ) * 0.5, 5.4, 0.58, 1.35, aL);
+        BBal.box(+2.6, y, (tipZ + wingZ) * 0.5, 5.4, 0.58, 1.35, aR);
+        // Металлические поручни (2 горизонтальные рейки + стойки)
+        for (const ry of [0.58, 1.02]) {
+          BRail.box(-2.6, y + ry, (tipZ + wingZ) * 0.5 + sz * 0.45, 5.3, 0.08, 0.08, aL);
+          BRail.box(+2.6, y + ry, (tipZ + wingZ) * 0.5 + sz * 0.45, 5.3, 0.08, 0.08, aR);
+        }
+        for (const px of [-4.8, -2.4, 0, 2.4, 4.8]) {
+          const pz = tipZ - Math.abs(px) * 0.29 * sz + sz * 0.45;
+          BRail.box(px, y + 0.56, pz, 0.08, 0.92, 0.08, 0);
+        }
       }
     }
+    white.push(BBal.build());
+    chrome.push(BRail.build());
+  }
 
-    // 3 высоких хромированных флагштока на южной площади перед главным входом (РК, QazaqGaz, ICA)
+  // ── 6. 4-СКАТНАЯ СТЕКЛЯННАЯ ПИРАМИДА НА КРЫШЕ + ШПИЛЬ (фото 01) ──
+  {
+    const BP = new GB();
+    const y0 = 73.4, yApex = 84.8, hw = 16.4, hd = 13.4;
+    const apex = [0, yApex, 0];
+    const c = [[-hw, y0, -hd], [hw, y0, -hd], [hw, y0, hd], [-hw, y0, hd]];
+    const mulList = [];
+    for (let i = 0; i < 4; i++) {
+      const p0 = c[i], p1 = c[(i + 1) % 4];
+      const ux = p1[0] - p0[0], uy = 0, uz = p1[2] - p0[2];
+      const vx = apex[0] - p0[0], vy = apex[1] - p0[1], vz = apex[2] - p0[2];
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const len = Math.hypot(nx, ny, nz) || 1;
+      BP.tri(p1, p0, apex, [nx / len, ny / len, nz / len], [1, 0], [0, 0], [0.5, 1]);
+      mulList.push(tube([new THREE.Vector3(...p0), new THREE.Vector3(...apex)], 0.26, 6));
+      for (const frac of [0.25, 0.5, 0.75]) {
+        const xm = p0[0] + (p1[0] - p0[0]) * frac;
+        const zm = p0[2] + (p1[2] - p0[2]) * frac;
+        mulList.push(tube([new THREE.Vector3(xm, y0, zm), new THREE.Vector3(...apex)], 0.14, 4));
+      }
+    }
+    darkMetal.push(...mulList);
+    const pyrMat = M.phys({
+      color: 0x3b6384, roughness: 0.10, metalness: 0.45, clearcoat: 1.0,
+      reflectivity: 1.0, envMapIntensity: 1.75,
+    });
+    const pyrMesh = new THREE.Mesh(BP.build(), pyrMat);
+    pyrMesh.castShadow = true; pyrMesh.receiveShadow = true;
+    g.add(pyrMesh);
+
+    // Тонкий центральный шпиль
+    chrome.push(new THREE.CylinderGeometry(0.06, 0.22, 13.5, 8).translate(0, yApex + 6.75, 0));
+  }
+
+  // ── 7. ВЫВЕСКИ QAZAQGAZ + 3D СИНЕЕ ПЛАМЯ (под пирамидой и на перголе) ──
+  {
+    const topSignTex = createQazaqGazSignTexture(true);
+    const topSignMat = M.std({
+      map: topSignTex, emissiveMap: topSignTex, emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.45,
+      roughness: 0.25, metalness: 0.2,
+    });
+    const portSignTex = createQazaqGazSignTexture(true);
+    const portSignMat = M.std({
+      map: portSignTex, emissiveMap: portSignTex, emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.55,
+      roughness: 0.25, metalness: 0.2,
+    });
+
+    // На верхнем белом карнизе под пирамидой (Юг +Z и Север -Z)
+    const cS = new THREE.Mesh(new THREE.PlaneGeometry(18, 4.2), topSignMat);
+    cS.position.set(0, 72.4, 15.15);
+    g.add(cS);
+    const cN = new THREE.Mesh(new THREE.PlaneGeometry(18, 4.2), topSignMat);
+    cN.position.set(0, 72.4, -15.15);
+    cN.rotation.y = Math.PI;
+    g.add(cN);
+
+    // На белой перголе-козырьке над южным входом (+Z)
+    const pS = new THREE.Mesh(new THREE.PlaneGeometry(9.2, 1.9), portSignMat);
+    pS.position.set(0, 10.0, 25.35);
+    g.add(pS);
+
+    // Объёмные сине-циановые элементы пламени на перголе и карнизе
+    const BN = new GB();
+    BN.box(-4.9, 10.0, 25.4, 0.55, 1.4, 0.22, 0.35);
+    BN.box(-9.4, 72.4, 15.25, 1.1, 2.8, 0.35, 0.35);
+    neonBlue.push(BN.build());
+  }
+
+  // ── 8. ПАНДУС СЛЕВА, РОМБОВИДНАЯ ПЛОЩАДКА, ФОНАРИ, ЛАВОЧКА, ГОРШОК, ПАРКОВКА 14..22 ──
+  {
+    // Нержавеющий пандус слева (x = -17.5 .. -10.5)
+    const BC = new GB();
+    for (const rz of [21.0, 23.8]) {
+      BC.box(-14.0, 0.85, rz, 7.2, 0.08, 0.08, -0.075);
+      for (let px = -17.2; px <= -10.8; px += 1.6) {
+        BC.box(px, 0.45, rz, 0.07, 0.9, 0.07, 0);
+      }
+    }
+    chrome.push(BC.build());
+
+    // Ромбовидный гранитный подиум-площадка (фото 03/05)
+    const fTex = createDiamondForecourtTexture();
+    const fMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(54, 14.5).rotateX(-Math.PI / 2),
+      M.std({ map: fTex, roughness: 0.42, metalness: 0.06 })
+    );
+    fMesh.position.set(0, 0.03, 25.2);
+    fMesh.receiveShadow = true;
+    g.add(fMesh);
+
+    // 2 серебристых цилиндрических фонаря с коническими колпаками (фото 02!)
+    for (const lx of [-10.2, 10.2]) {
+      steel.push(new THREE.CylinderGeometry(0.16, 0.20, 3.0, 12).translate(lx, 1.5, 29.8));
+      glowWarm.push(new THREE.CylinderGeometry(0.19, 0.19, 0.65, 12).translate(lx, 3.1, 29.8));
+      steel.push(new THREE.ConeGeometry(0.62, 0.45, 14).translate(lx, 3.6, 29.8));
+    }
+
+    // Классическая кованая скамейка + терракотовый горшок с фиолетовыми цветами (фото 02!)
+    const BW = new GB(), BD = new GB();
+    BW.box(-1.5, 0.48, 29.8, 2.2, 0.08, 0.56, 0);
+    BW.box(-1.5, 0.82, 30.05, 2.2, 0.45, 0.07, 0);
+    BD.box(-2.45, 0.45, 29.8, 0.10, 0.9, 0.62, 0);
+    BD.box(-0.55, 0.45, 29.8, 0.10, 0.9, 0.62, 0);
+    wood.push(BW.build());
+    darkMetal.push(BD.build());
+
+    terracotta.push(new THREE.CylinderGeometry(0.45, 0.34, 0.62, 12).translate(-3.4, 0.31, 29.8));
+    purple.push(new THREE.DodecahedronGeometry(0.48, 1).translate(-3.4, 0.72, 29.8));
+
+    // Жёлтая размеченная парковка с номерами 14..22 (z = 32.5 .. 39.5)
+    const pTex = createNumberedParkingTexture();
+    const pMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(46, 7.6).rotateX(-Math.PI / 2),
+      M.std({ map: pTex, roughness: 0.78, metalness: 0.02, polygonOffset: true, polygonOffsetFactor: -1 })
+    );
+    pMesh.position.set(0, 0.04, 36.4);
+    pMesh.receiveShadow = true;
+    g.add(pMesh);
+
+    // 3 флагштока (РК, QazaqGaz, ICA) справа на площади
     const flagKinds = ["rk", "qg", "ica"];
     for (let i = 0; i < 3; i++) {
-      const fx = -7.5 + i * 7.5;
-      const fz = 42.5;
-      chrome.push(new THREE.CylinderGeometry(0.11, 0.18, 16.5, 8).translate(fx, 8.25, fz));
-      chrome.push(new THREE.SphereGeometry(0.28, 8, 6).translate(fx, 16.7, fz));
-      granLight.push(new THREE.CylinderGeometry(0.75, 0.95, 0.9, 12).translate(fx, 0.45, fz));
-
+      const fx = 21.5 + i * 3.8, fz = 29.5;
+      chrome.push(new THREE.CylinderGeometry(0.09, 0.14, 13.5, 8).translate(fx, 6.75, fz));
       const fTex = createFlagTexture(flagKinds[i]);
-      const fMat = M.std({ map: fTex, roughness: 0.52, metalness: 0.05, side: THREE.DoubleSide });
-      const flag = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 2.6, 6, 1), fMat);
-      // Лёгкая естественная волна полотнища
-      const pos = flag.geometry.attributes.position;
-      for (let v = 0; v < pos.count; v++) {
-        const px = pos.getX(v);
-        pos.setZ(v, Math.sin((px + 2.1) * 1.4 + i) * 0.22);
-      }
-      flag.geometry.computeVertexNormals();
-      flag.position.set(fx + 2.2, 14.6, fz);
-      flag.castShadow = true;
+      const flag = new THREE.Mesh(
+        new THREE.PlaneGeometry(3.2, 2.0),
+        M.std({ map: fTex, roughness: 0.55, side: THREE.DoubleSide })
+      );
+      flag.position.set(fx + 1.65, 12.1, fz);
       g.add(flag);
     }
   }
 
-  // ── 2. 18-ЭТАЖНЫЙ НЕОМОДЕРНИСТСКИЙ ОСНОВНОЙ ОБЪЁМ (y = 13.5..86 м) ──
-  // Габариты 50 × 50 м идеально стыкуются с LED-рёбрами (±25, ±25, h=86) из cyberpunk.js!
-  {
-    const BMain = new GB();
-    // Центральный высокий стеклянный атриум-корпус (до 82 м)
-    BMain.box(0, 47.8, 0, 28, 68.6, 48.6, 0);
-    // Боковые ступенчатые крылья (уступы 72 м и 64 м)
-    BMain.box(-19, 43.0, 0, 12.2, 59.0, 42.0, 0);
-    BMain.box(+19, 43.0, 0, 12.2, 59.0, 42.0, 0);
-    // Выразительные боковые эркеры-акценты
-    BMain.box(-23.5, 38.5, 0, 3.6, 50.0, 32.0, 0);
-    BMain.box(+23.5, 38.5, 0, 3.6, 50.0, 32.0, 0);
-    // Верхний фасадный аттик-корона (y = 82..86 м)
-    BMain.box(0, 84.0, 0, 30, 4.0, 49.0, 0);
-    glassBlue.push(BMain.build());
+  const espressoMat = M.phys({ color: 0x2d201a, roughness: 0.22, metalness: 0.10, clearcoat: 0.65, envMapIntensity: 1.35 });
+  const terracottaMat = M.std({ color: 0xb65d38, roughness: 0.75 });
+  const purpleMat = M.std({ color: 0x6b289e, roughness: 0.82 });
 
-    // Плотные вертикальные алюминиевые фасадные ламели и горизонтальные межэтажные пояса (18 этажей!)
-    const BS = new GB();
-    const BD = new GB();
-
-    // Центральный блок: частые вертикальные рёбра на Южном (+Z) и Северном (-Z) фасадах
-    for (let lx = -13.5; lx <= 13.5; lx += 2.7) {
-      BS.box(lx, 48.0, +24.55, 0.42, 69.0, 0.65, 0);
-      BS.box(lx, 48.0, -24.55, 0.42, 69.0, 0.65, 0);
-    }
-    // Вертикальные рёбра на боковых крыльях (Юг/Север + Запад/Восток)
-    for (const sx of [-1, 1]) {
-      for (let lx = 15.0; lx <= 24.0; lx += 3.0) {
-        BS.box(sx * lx, 43.0, +21.25, 0.42, 59.0, 0.55, 0);
-        BS.box(sx * lx, 43.0, -21.25, 0.42, 59.0, 0.55, 0);
-      }
-      for (let lz = -18.0; lz <= 18.0; lz += 3.6) {
-        BS.box(sx * 25.4, 38.5, lz, 0.55, 50.0, 0.42, 0);
-        BS.box(sx * 25.1, 43.0, lz, 0.45, 59.0, 0.36, 0);
-      }
-    }
-
-    // 18 чётких горизонтальных межэтажных переплётов (шаг 4.0 м)
-    for (let fl = 0; fl < 18; fl++) {
-      const y = 14.0 + fl * 4.0;
-      const isTech = (fl === 8 || fl === 16);
-      const target = isTech ? BD : BS;
-      const th = isTech ? 1.15 : 0.34;
-      target.box(0, y, +24.6, 28.8, th, 0.6, 0);
-      target.box(0, y, -24.6, 28.8, th, 0.6, 0);
-      if (y <= 72.5) {
-        target.box(0, y, +21.3, 50.6, th, 0.5, 0);
-        target.box(0, y, -21.3, 50.6, th, 0.5, 0);
-        target.box(-25.35, y, 0, 0.55, th, 42.6, 0);
-        target.box(+25.35, y, 0, 0.55, th, 42.6, 0);
-      }
-    }
-
-    // Архитектурная корона крыши (выносная рама, техэтаж с жалюзи, карнизы крыльев)
-    BS.box(0, 86.2, 0, 33.0, 1.4, 51.6, 0);
-    BS.box(0, 72.6, 0, 52.0, 1.2, 43.6, 0);
-    BS.box(0, 63.6, 0, 53.0, 1.0, 33.6, 0);
-    // Технический уровень-пентхаус на крыше
-    BD.box(0, 88.2, 0, 22, 3.2, 32, 0);
-    BS.box(-10, 89.2, 0, 3, 2.2, 26, 0);
-    BS.box(+10, 89.2, 0, 3, 2.2, 26, 0);
-
-    steel.push(BS.build());
-    darkMetal.push(BD.build());
-
-    // Фирменная архитектурная сине-циановая LED-окантовка короны и вертикальных рёбер (ночью / в F!)
-    const BN = new GB();
-    BN.box(0, 85.9, +25.9, 33.4, 0.38, 0.38, 0);
-    BN.box(0, 85.9, -25.9, 33.4, 0.38, 0.38, 0);
-    BN.box(-16.6, 85.9, 0, 0.38, 0.38, 52.0, 0);
-    BN.box(+16.6, 85.9, 0, 0.38, 0.38, 52.0, 0);
-    // Окантовка крыльев
-    BN.box(0, 72.6, +21.9, 52.4, 0.32, 0.32, 0);
-    BN.box(0, 72.6, -21.9, 52.4, 0.32, 0.32, 0);
-    // 4 акцентных вертикальных ребра центрального атриума
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-      BN.box(sx * 14.3, 49.5, sz * 24.75, 0.36, 72.0, 0.36, 0);
-    }
-    neon.push(BN.build());
-  }
-
-  // ── 3. КРИСТАЛЬНО ЧИТАЕМЫЕ ВЫВЕСКИ «QAZAQGAZ» (СНАРУЖИ НА ВСЕХ КЛЮЧЕВЫХ ФАСАДАХ!) ──
-  {
-    const crownTex = createQazaqGazSignTexture(false);
-    const portalTex = createQazaqGazSignTexture(true);
-
-    const signMat = M.std({
-      map: crownTex,
-      emissiveMap: crownTex,
-      emissive: new THREE.Color(0xffffff),
-      emissiveIntensity: 0.95,
-      roughness: 0.22,
-      metalness: 0.25,
-    });
-    const portalMat = M.std({
-      map: portalTex,
-      emissiveMap: portalTex,
-      emissive: new THREE.Color(0xffffff),
-      emissiveIntensity: 0.95,
-      roughness: 0.22,
-      metalness: 0.25,
-    });
-
-    // Корпус вывесок на короне (y = 83.2 м) — ВЫДВИНУТЫ наружу, правильные нормали!
-    const signW = 26, signH = 6.5;
-    // Южный фасад (+Z, прямо на камеру qazaqgaz!) — rotation.y = 0 смотрит в +Z!
-    const sSouth = new THREE.Mesh(new THREE.PlaneGeometry(signW, signH), signMat);
-    sSouth.position.set(0, 83.2, +25.4);
-    g.add(sSouth);
-
-    // Северный фасад (-Z, виден с бульвара Нуржол!) — rotation.y = Math.PI смотрит в -Z!
-    const sNorth = new THREE.Mesh(new THREE.PlaneGeometry(signW, signH), signMat);
-    sNorth.position.set(0, 83.2, -25.4);
-    sNorth.rotation.y = Math.PI;
-    g.add(sNorth);
-
-    // Западный боковой фасад (-X, отлично читается с ракурса qazaqgaz под 45°!) — rotation.y = -Math.PI/2 смотрит в -X!
-    const sWest = new THREE.Mesh(new THREE.PlaneGeometry(24, 6.0), signMat);
-    sWest.position.set(-15.6, 83.2, 0);
-    sWest.rotation.y = -Math.PI / 2;
-    g.add(sWest);
-
-    // Восточный фасад (+X) — rotation.y = +Math.PI/2 смотрит в +X!
-    const sEast = new THREE.Mesh(new THREE.PlaneGeometry(24, 6.0), signMat);
-    sEast.position.set(+15.6, 83.2, 0);
-    sEast.rotation.y = Math.PI / 2;
-    g.add(sEast);
-
-    // Входные вывески на козырьке главного (+Z) и северного (-Z) порталов
-    const entSouth = new THREE.Mesh(new THREE.PlaneGeometry(15, 3.6), portalMat);
-    entSouth.position.set(0, 15.8, +32.5);
-    g.add(entSouth);
-
-    const entNorth = new THREE.Mesh(new THREE.PlaneGeometry(15, 3.6), portalMat);
-    entNorth.position.set(0, 15.8, -32.5);
-    entNorth.rotation.y = Math.PI;
-    g.add(entNorth);
-
-    // Корпоративный гранит-тотем QAZAQGAZ на входной площади (+Z)
-    const BSt = new GB();
-    BSt.box(-20, 3.2, 41, 6.8, 6.4, 1.4, 0);
-    darkMetal.push(BSt.build());
-    const steleFace = new THREE.Mesh(new THREE.PlaneGeometry(6.2, 1.8), portalMat);
-    steleFace.position.set(-20, 4.6, 41.8);
-    g.add(steleFace);
-  }
-
-  // Авиационные огни на короне крыши
-  for (const [bx, bz] of [[-15.5, -24.5], [15.5, -24.5], [-15.5, 24.5], [15.5, 24.5]]) {
-    const b = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), M.glow(0xff2a1a, 6));
-    b.position.set(bx, 87.4, bz);
-    g.add(b);
-  }
-
-  addMerged(g, granite, M.granite, true, true);
-  addMerged(g, granLight, M.graniteLight, true, true);
-  addMerged(g, glassBlue, M.glassBlue, true, true);
-  addMerged(g, glassLobby, M.glassClear, false, true);
+  addMerged(g, espresso, espressoMat, true, true);
+  addMerged(g, glassTeal, M.glassEmerald, true, true);
+  addMerged(g, glassClear, M.glassClear, false, false);
   addMerged(g, steel, M.steel, true, true);
-  addMerged(g, chrome, M.chrome, false, true);
+  addMerged(g, white, M.whitePaint, true, true);
   addMerged(g, darkMetal, M.darkMetal, true, true);
-  addMerged(g, warmGlow, M.glow(0xffe2b0, 3.2, 0xd8c8a8), false, false);
-  addMerged(g, neon, M.neon(0x00d8ff, 5.8, 0.08), false, false);
+  addMerged(g, chrome, M.chrome, false, true);
+  addMerged(g, wood, M.wood, true, true);
+  addMerged(g, terracotta, terracottaMat, true, true);
+  addMerged(g, purple, purpleMat, false, true);
+  addMerged(g, glowWarm, M.glow(0xffe0a8, 4.0, 0xf2ece0), false, false);
+  addMerged(g, neonBlue, M.neon(0x00a8ff, 4.5, 0.65), false, false);
+}
 
-  return { group: g };
+// ---------- ТОЧНЫЕ СОСЕДИ QAZAQGAZ (Запад & Восток, фото 01 & 03) ----------
+function buildQazaqGazNeighbors(parent, M) {
+  const g = new THREE.Group();
+  g.name = "qazaqgaz-neighbors";
+  parent.add(g);
+
+  // 1. ЗАПАДНЫЙ СОСЕД (x: 162, z: 150) — 7-этажная тёплая кремовая неоклассика + коричневый 2-эт. подиум + белый навес парковки
+  {
+    const wg = new THREE.Group();
+    wg.position.set(162, 0, 150);
+    g.add(wg);
+
+    const cream = [], brown = [], glass = [], white = [], steel = [], asphalt = [];
+    const B = new GB(), BB = new GB(), BG = new GB();
+    // Тёмно-коричневый 2-этажный подиум (y = 0..7.4)
+    BB.box(0, 3.7, 0, 52, 7.4, 26, 0);
+    BG.box(0, 3.5, 0, 52.4, 4.8, 22, 0);
+    // 5 кремово-бежевых этажей (y = 7.4..25.5)
+    B.box(0, 16.4, 0, 52, 18.0, 26, 0);
+    // Вертикальные пилястры + классический карниз + парапет
+    for (let px = -24; px <= 24; px += 6) {
+      B.box(px, 16.4, 13.2, 1.3, 18.2, 0.8, 0);
+      B.box(px, 16.4, -13.2, 1.3, 18.2, 0.8, 0);
+    }
+    B.box(0, 25.9, 0, 54.4, 1.4, 28.4, 0);
+    B.box(0, 27.3, 0, 52.6, 1.4, 26.6, 0);
+    B.box(-14, 28.5, 0, 10, 2.2, 10, 0);
+    B.box(+14, 28.5, 0, 10, 2.2, 10, 0);
+    BG.box(0, 16.5, 0, 49, 14.5, 26.4, 0);
+
+    // Белый арочный крытый парковочный навес перед зданием (x=+34, z=+18 → мир ~196, 168)
+    const BW = new GB(), BS = new GB(), BA = new GB();
+    BA.box(24, 0.03, 22, 30, 0.06, 18, 0);
+    const nArc = 8;
+    for (let i = 0; i < nArc; i++) {
+      const a = -0.5 + (i + 0.5) / nArc;
+      BW.box(26, 3.8 - Math.abs(a) * 0.7, 19 + a * 6.5, 24, 0.18, 1.0, 0);
+    }
+    for (let px = 15; px <= 37; px += 5.5) {
+      BS.box(px, 1.8, 15.8, 0.16, 3.6, 0.16, 0);
+      BS.box(px, 1.8, 22.2, 0.16, 3.6, 0.16, 0);
+    }
+
+    cream.push(B.build());
+    brown.push(BB.build());
+    glass.push(BG.build());
+    white.push(BW.build());
+    steel.push(BS.build());
+    asphalt.push(BA.build());
+
+    addMerged(wg, cream, M.stone, true, true);
+    addMerged(wg, brown, M.std({ color: 0x3a2a22, roughness: 0.35 }), true, true);
+    addMerged(wg, glass, M.glass, false, true);
+    addMerged(wg, white, M.whitePaint, true, true);
+    addMerged(wg, steel, M.steel, true, true);
+    addMerged(wg, asphalt, M.asphalt, false, true);
+  }
+
+  // 2. ВОСТОЧНЫЙ СОСЕД (x: 314, z: 152) — 9-этажный светло-бежевый дом + эркер лестницы + синекупольные башни сзади
+  {
+    const eg = new THREE.Group();
+    eg.position.set(314, 0, 152);
+    g.add(eg);
+
+    const facade = [], glass = [], stone = [], domes = [], gold = [];
+    const BF = new GB(), BG = new GB(), BS = new GB();
+    // Основной 9-этажный жилой корпус (62×20×30 м)
+    BF.box(0, 15, 0, 62, 30, 20, 0);
+    // Первый этаж коммерция
+    BS.box(0, 2.2, 0, 62.6, 4.4, 20.6, 0);
+    BG.box(0, 2.2, 10.4, 58, 3.2, 0.2, 0);
+    // Выступающий вертикальный остеклённый эркер лестничной клетки справа (фото 01!)
+    BF.box(23, 15, 11.5, 8.5, 30, 4.5, 0);
+    BG.box(23, 16, 13.8, 6.2, 26, 0.3, 0);
+    // Утопленные лоджии и балконные пояса
+    for (let bx = -24; bx <= 14; bx += 9.5) {
+      BS.box(bx, 17, 10.2, 5.2, 23, 0.6, 0);
+    }
+    // Задний блок с синекупольными угловыми башенками (фото 01 справа!)
+    BF.box(22, 16, -24, 34, 32, 18, 0);
+    for (const sx of [10, 34]) {
+      BS.box(sx, 33, -24, 6.5, 4, 6.5, 0);
+      domes.push(new THREE.SphereGeometry(3.2, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.62).translate(sx, 35, -24));
+      gold.push(new THREE.CylinderGeometry(0.08, 0.22, 3.2, 6).translate(sx, 39.2, -24));
+    }
+
+    facade.push(BF.build());
+    glass.push(BG.build());
+    stone.push(BS.build());
+
+    addMerged(eg, facade, M.res, true, true);
+    addMerged(eg, stone, M.travertine, true, true);
+    addMerged(eg, glass, M.glass, false, true);
+    addMerged(eg, domes, M.blueDome, true, true);
+    addMerged(eg, gold, M.gold, false, true);
+  }
+}
+
+// ============================================================
+// HIGHVILL PARK (x: -630, z: +660, 6 башен) & HIGHVILL ASTANA (x: +1140, z: -90, 4 башни)
+// Ступенчатая корейско-современная архитектура, «двор без машин», ретейл
+// ============================================================
+function buildHighvillComplex(parent, M, { cx, cz, podiumW, podiumD, towers, signTitle, name }) {
+  const g = new THREE.Group();
+  g.position.set(cx, 0, cz);
+  g.name = name;
+  parent.add(g);
+
+  const podiumH = 3.8;
+  const terra = [], beige = [], silver = [], glass = [], dark = [], lawn = [], walk = [], wood = [];
+
+  // Стилобат «двор без машин» + коммерция 1 этажа
+  {
+    const BD = new GB(), BL = new GB(), BW = new GB();
+    BD.box(0, podiumH / 2, 0, podiumW, podiumH, podiumD, 0);
+    dark.push(BD.build());
+    // Витрины ретейла по внешнему периметру стилобата
+    glass.push(new THREE.BoxGeometry(podiumW + 0.3, 2.8, podiumD - 16).translate(0, 1.8, 0));
+    glass.push(new THREE.BoxGeometry(podiumW - 16, 2.8, podiumD + 0.3).translate(0, 1.8, 0));
+
+    // Зелёный газон и гранитные дорожки двора на кровле стилобата
+    BL.box(0, podiumH + 0.04, 0, podiumW - 22, 0.08, podiumD - 22, 0);
+    lawn.push(BL.build());
+    BW.box(0, podiumH + 0.09, 0, podiumW - 14, 0.08, 6.5, 0);
+    BW.box(0, podiumH + 0.09, 0, 6.5, 0.08, podiumD - 14, 0);
+    walk.push(BW.build());
+
+    // Деревянная пергола в центре двора
+    const BP = new GB();
+    BP.box(0, podiumH + 2.8, 0, 14, 0.3, 6, 0);
+    for (const px of [-6, 0, 6]) for (const pz of [-2.4, 2.4]) {
+      BP.box(px, podiumH + 1.4, pz, 0.35, 2.8, 0.35, 0);
+    }
+    wood.push(BP.build());
+  }
+
+  // Ступенчатые корейско-современные жилые башни
+  for (const t of towers) {
+    const BT = new GB(), BB = new GB(), BS = new GB(), BG = new GB();
+    const h1 = t.h * 0.56, h2 = t.h * 0.30, h3 = t.h * 0.14;
+    // Нижний терракотовый / тёпло-бежевый корпус
+    BT.box(t.x, podiumH + h1 * 0.5, t.z, t.w, h1, t.d, 0);
+    // Средний ступенчатый объём (сдвиг)
+    BB.box(t.x + t.sx * 2.5, podiumH + h1 + h2 * 0.5, t.z, t.w * 0.84, h2, t.d * 0.88, 0);
+    // Верхняя серебристо-серая корона
+    BS.box(t.x + t.sx * 4.5, podiumH + h1 + h2 + h3 * 0.5, t.z, t.w * 0.66, h3, t.d * 0.72, 0);
+    BS.box(t.x + t.sx * 4.5, podiumH + t.h + 1.4, t.z, t.w * 0.70, 1.2, t.d * 0.76, 0);
+    // Остеклённые вертикальные ленты балконов
+    BG.box(t.x, podiumH + h1 * 0.5, t.z, t.w * 0.62, h1 * 0.9, t.d + 0.4, 0);
+    BG.box(t.x + t.sx * 2.5, podiumH + h1 + h2 * 0.5, t.z, t.w * 0.54, h2 * 0.9, t.d * 0.88 + 0.4, 0);
+
+    terra.push(BT.build());
+    beige.push(BB.build());
+    silver.push(BS.build());
+    glass.push(BG.build());
+  }
+
+  // Вывеска комплекса
+  const sTex = makeBannerTex(signTitle, {
+    w: 512, h: 112, bg: "#1c222d", fg: "#ffffff", accent: "#e8a858", sub: "RESIDENTIAL COMPLEX",
+  });
+  const sMat = M.std({ map: sTex, emissiveMap: sTex, emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.72 });
+  const signS = new THREE.Mesh(new THREE.PlaneGeometry(18, 3.8), sMat);
+  signS.position.set(0, podiumH + 1.6, podiumD / 2 + 0.3);
+  g.add(signS);
+  const signN = new THREE.Mesh(new THREE.PlaneGeometry(18, 3.8), sMat);
+  signN.position.set(0, podiumH + 1.6, -podiumD / 2 - 0.3);
+  signN.rotation.y = Math.PI;
+  g.add(signN);
+
+  const terraMat = M.std({ color: 0xb86d52, roughness: 0.62, metalness: 0.05 });
+  addMerged(g, terra, terraMat, true, true);
+  addMerged(g, beige, M.travertine, true, true);
+  addMerged(g, silver, M.steel, true, true);
+  addMerged(g, glass, M.glassBlue, false, true);
+  addMerged(g, dark, M.darkMetal, true, true);
+  addMerged(g, lawn, M.grass, false, true);
+  addMerged(g, walk, M.graniteLight, false, true);
+  addMerged(g, wood, M.wood, true, true);
 }
 
 // ============================================================
@@ -774,14 +1201,44 @@ export function buildSignature(scene, M, _ctx) {
   buildBeijing(group, M);
   buildTriumph(group, M);
 
-  // ★★★ HERO — Штаб-квартира QazaqGaz ★★★
+  // ★★★ HERO — Штаб-квартира QazaqGaz + точные соседи ★★★
   buildQazaqGaz(group, M);
+  buildQazaqGazNeighbors(group, M);
+
+  // ★★★ Highvill Park (6 башен) & Highvill Astana (4 башни) ★★★
+  buildHighvillComplex(group, M, {
+    cx: L.highvillPark.x, cz: L.highvillPark.z,
+    podiumW: 162, podiumD: 138,
+    signTitle: "HIGHVILL PARK",
+    name: "sig-highvill-park",
+    towers: [
+      { x: -58, z: -48, w: 30, d: 22, h: 78, sx: 1 },
+      { x:   0, z: -50, w: 32, d: 22, h: 86, sx: 0 },
+      { x: +58, z: -48, w: 30, d: 22, h: 74, sx: -1 },
+      { x: -60, z: +46, w: 28, d: 22, h: 64, sx: 1 },
+      { x:   0, z: +48, w: 32, d: 22, h: 72, sx: 0 },
+      { x: +58, z: +46, w: 28, d: 22, h: 60, sx: -1 },
+    ],
+  });
+
+  buildHighvillComplex(group, M, {
+    cx: 1145, cz: -104,
+    podiumW: 118, podiumD: 82,
+    signTitle: "HIGHVILL ASTANA",
+    name: "sig-highvill-astana",
+    towers: [
+      { x: -40, z: -26, w: 26, d: 20, h: 68, sx: 1 },
+      { x: +40, z: -26, w: 26, d: 20, h: 76, sx: -1 },
+      { x: -40, z: +26, w: 26, d: 20, h: 58, sx: 1 },
+      { x: +40, z: +26, w: 26, d: 20, h: 64, sx: -1 },
+    ],
+  });
 
   for (const s of SIGNATURE) {
-    towers.push({ x: s.x, y: 0, z: s.z, yaw: s.yaw || 0, w: s.w || 40, d: s.d || 40, h: s.h });
+    towers.push({ x: s.x, y: 0, z: s.z, yaw: s.yaw || 0, w: s.w || 40, d: s.d || 40, h: s.h, walkable: !!s.walkable });
   }
   if (L.qazaqGaz) {
-    towers.push({ x: L.qazaqGaz.x, y: 0, z: L.qazaqGaz.z, yaw: 0, w: 62, d: 54, h: L.qazaqGaz.h, isQazaqGaz: true });
+    towers.push({ x: L.qazaqGaz.x, y: 0, z: L.qazaqGaz.z, yaw: 0, w: 46, d: 38, h: L.qazaqGaz.h, isQazaqGaz: true, walkable: true });
   }
 
   return {

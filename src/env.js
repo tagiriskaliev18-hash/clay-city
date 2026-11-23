@@ -168,7 +168,7 @@ export function createEnv(renderer, scene, camera, tier) {
   renderer.shadowMap.enabled = tier.cascades > 0;
   renderer.shadowMap.type = THREE.PCFShadowMap;
 
-  const far = 90000;
+  const far = 12000;
   const sky = new Sky(); sky.scale.setScalar(far); sky.frustumCulled = false; sky.renderOrder = -10; patchSky(sky); scene.add(sky);
   const cloudsHi = cloudLayer({ height: 2800, scale: 1 / 5200, oct: tier.cloudOct || 4, drift: 1.0 }); scene.add(cloudsHi);
   const cloudsLo = null;
@@ -299,6 +299,7 @@ export function createEnv(renderer, scene, camera, tier) {
         if (rawK >= 1) cyberTween = null;
       }
       if (envDirty) { regenEnv(); envDirty = false; }
+      sky.position.copy(camera.position);
       cloudsHi.position.set(camera.position.x, cloudsHi.position.y, camera.position.z);
       if (csm) { camera.updateMatrixWorld(); csm.update(); }
       void dt;

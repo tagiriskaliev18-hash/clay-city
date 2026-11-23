@@ -487,6 +487,87 @@ function buildCircus(parent, M) {
   return { group: g };
 }
 
+// ---------- 9. БОТАНИЧЕСКИЙ САД (x: -360, z: +670, ~280×200 м) ----------
+// С центральным прудом, золотым павильоном-фонтаном «Тайказан» и мощёными аллеями
+function buildBotanicalGarden(parent, M) {
+  const P = L.botanicalGarden;
+  if (!P) return { group: new THREE.Group() };
+  const g = new THREE.Group();
+  g.position.set(P.x, 0, P.z);
+  g.name = "landmark-botanical-garden";
+  parent.add(g);
+
+  const grass = [], walk = [], granite = [], water = [], gold = [], white = [], turq = [];
+
+  // Главный массив парка (к востоку от пр. Кабанбай батыра x=-430 и к северу от ул. Улы Дала z=760)
+  // Центр парка локально: (+62, -25) → мир (-298, +645), + западный зелёный буфер к Highvill Park!
+  {
+    const BGr = new GB();
+    BGr.box(+62, 0.02, -25, 224, 0.04, 186, 0);
+    // Западный зелёный сквер между Кабанбай (-430) и Highvill (-535)
+    BGr.box(-112, 0.02, -25, 52, 0.04, 176, 0);
+    grass.push(BGr.build());
+
+    // Мощёные прогулочные дорожки (крестовая ось + овальное кольцо вокруг пруда)
+    const BW = new GB();
+    BW.box(+62, 0.06, -25, 210, 0.05, 6.2, 0);
+    BW.box(+62, 0.06, -25, 6.2, 0.05, 172, 0);
+    for (let i = 0; i < 24; i++) {
+      const a0 = (i / 24) * TAU, a1 = ((i + 1) / 24) * TAU;
+      const am = (a0 + a1) * 0.5;
+      const rx = 62, rz = 46;
+      const px = 62 + Math.cos(am) * rx, pz = -25 + Math.sin(am) * rz;
+      const segLen = Math.hypot(
+        (Math.cos(a1) - Math.cos(a0)) * rx,
+        (Math.sin(a1) - Math.sin(a0)) * rz
+      ) + 0.8;
+      const yaw = Math.atan2(Math.cos(am) * rx, -Math.sin(am) * rz);
+      BW.box(px, 0.06, pz, 5.4, 0.05, segLen, yaw);
+    }
+    walk.push(BW.build());
+  }
+
+  // Центральный пруд + золотой павильон/фонтан «Тайказан» (локально cx=+62, cz=-25 → мир -298, +645)
+  {
+    const px = 62, pz = -25;
+    // Гранитный берег пруда
+    const rim = new THREE.CylinderGeometry(27.5, 28.5, 0.55, 36).scale(1.18, 1, 0.86).translate(px, 0.25, pz);
+    granite.push(rim);
+    // Водное зеркало пруда
+    water.push(new THREE.CylinderGeometry(25.8, 25.8, 0.42, 36).scale(1.18, 1, 0.86).translate(px, 0.38, pz));
+
+    // Остров-подиум павильона Тайказан в центре пруда
+    const B = new GB();
+    revolve(B, [[0, 0.4], [10.5, 0.4], [10.5, 1.3], [9.2, 1.3], [9.2, 1.8], [0, 1.8]], 24, { smooth: false });
+    white.push(B.build().translate(px, 0, pz));
+
+    // 8 стройных колонн павильона + ажурный бирюзово-золотой купол
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU;
+      const cx = px + Math.cos(a) * 7.4, cz = pz + Math.sin(a) * 7.4;
+      white.push(new THREE.CylinderGeometry(0.28, 0.34, 6.8, 10).translate(cx, 5.2, cz));
+    }
+    turq.push(new THREE.TorusGeometry(7.6, 0.42, 8, 32).rotateX(Math.PI / 2).translate(px, 8.7, pz));
+    turq.push(onionDomeGeo(7.5, 6.2, 8.8, px, pz, 28));
+    gold.push(new THREE.CylinderGeometry(0.12, 0.32, 3.8, 8).translate(px, 16.5, pz));
+
+    // Скульптурный золотой «Тайказан» в центре павильона
+    const BT = new GB();
+    revolve(BT, [[0, 1.8], [1.4, 1.8], [1.1, 2.5], [2.8, 3.2], [3.1, 4.4], [2.6, 4.8], [2.4, 4.4], [2.2, 3.4], [0, 3.4]], 24, { smooth: true });
+    gold.push(BT.build().translate(px, 0, pz));
+  }
+
+  addMerged(g, grass, M.grass, false, true);
+  addMerged(g, walk, M.graniteLight, false, true);
+  addMerged(g, granite, M.granite, true, true);
+  addMerged(g, water, M.turquoise, false, false);
+  addMerged(g, white, M.whitePaint, true, true);
+  addMerged(g, turq, M.turquoise, true, true);
+  addMerged(g, gold, M.gold, false, true);
+
+  return { group: g };
+}
+
 export function buildLandmarks(scene, M, _ctx) {
   const group = new THREE.Group();
   group.name = "landmarks-secondary";
@@ -500,6 +581,7 @@ export function buildLandmarks(scene, M, _ctx) {
   buildMuseum(group, M);
   buildArch(group, M);
   buildCircus(group, M);
+  buildBotanicalGarden(group, M);
 
   return {
     group,
